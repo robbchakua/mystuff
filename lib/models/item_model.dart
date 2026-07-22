@@ -1,11 +1,14 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:dad_app/models/item_history_model.dart';
 import 'package:dad_app/models/response_model.dart';
 import 'package:dad_app/models/user_model.dart';
 import 'package:dad_app/utils/constants.dart';
 import 'package:dad_app/utils/api.dart';
 import 'package:dad_app/utils/init.dart';
 import 'package:dad_app/utils/item_tags.dart';
+import 'package:dad_app/utils/item_status.dart';
 import 'package:dad_app/utils/utils.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -29,6 +32,7 @@ class Item {
   int? quantity;
   String? description;
   List<String> tags;
+  ItemStatus status;
   bool canEdit;
 
   Item({
@@ -43,12 +47,12 @@ class Item {
     this.quantity,
     this.description,
     this.tags = const [],
+    this.status = ItemStatus.inLocation,
     this.canEdit = false,
   });
 
   String get newName => safeString(name ?? '');
   String get newDescription => safeString(description ?? '');
-  String get fileName => file.path.split('/').last;
 
   factory Item.fromJson(Map<String, dynamic> json) => Item(
         id: _asInt(json['id']),
@@ -62,6 +66,7 @@ class Item {
         quantity: _asInt(json['quantity']) ?? 1,
         description: json['description']?.toString() ?? '',
         tags: decodeItemTags(json['tags']),
+        status: parseItemStatus(json['status']),
         canEdit: _asBool(json['canEdit']),
       );
 
@@ -77,10 +82,15 @@ class Item {
         'quantity': quantity,
         'description': description,
         'tags': tags,
+        'status': status.apiValue,
         'canEdit': canEdit,
       };
 
-  Future<FormData> toJsonExtended({required RequestType requestType}) async {
+  Future<FormData> toJsonExtended({
+    required RequestType requestType,
+    File? imageFile,
+    bool removeImage = false,
+  }) async {
     final resolvedBinId = binId ?? getLocationIdFromName(location ?? '');
     return FormData.fromMap({
       'request': requestType.toString(),
@@ -93,23 +103,33 @@ class Item {
       'quantity': quantity ?? 1,
       'description': newDescription,
       'tags': encodeItemTags(tags),
-      if (file.path.isNotEmpty)
-        'image': await MultipartFile.fromFile(file.path, filename: fileName),
+      'status': status.apiValue,
+      'removeImage': removeImage,
+      if (imageFile != null && imageFile.path.isNotEmpty)
+        'image': await MultipartFile.fromFile(
+          imageFile.path,
+          filename: imageFile.path.split('/').last,
+        ),
     });
   }
 
   @override
   String toString() => 'Item(Id: $id, Name: $name, BinId: $binId, '
       'Bin: $location, Image: $image, Multiple: $multiple, '
-      'Quantity: $quantity, Description: $description, Tags: $tags)';
+      'Quantity: $quantity, Description: $description, Tags: $tags, '
+      'Status: ${status.apiValue})';
 
   Future<SQLResponse?> post({
     bool newLocation = false,
     Color? newLocationColor,
     LatLng? newLocationCoordinates,
+    File? imageFile,
   }) async {
     try {
-      final formData = await toJsonExtended(requestType: RequestType.postItem);
+      final formData = await toJsonExtended(
+        requestType: RequestType.postItem,
+        imageFile: imageFile,
+      );
       if (printInsteadOfPostBool) {
         myPrint(toString());
         return null;
@@ -129,9 +149,15 @@ class Item {
     Color? newLocationColor,
     LatLng? newLocationCoordinates,
     String? oldImageLocation,
+    File? imageFile,
+    bool removeImage = false,
   }) async {
     try {
-      final formData = await toJsonExtended(requestType: RequestType.putItem);
+      final formData = await toJsonExtended(
+        requestType: RequestType.putItem,
+        imageFile: imageFile,
+        removeImage: removeImage,
+      );
       if (printInsteadOfPostBool) {
         myPrint(toString());
         return null;
@@ -161,6 +187,25 @@ class Item {
           SQLResponse(await apiClient.post(Urls.postUrl, data: formData));
       _applyData(response);
       return response;
+    } catch (error) {
+      myPrint(error);
+      return null;
+    }
+  }
+
+  Future<List<ItemHistoryEntry>?> getHistory() async {
+    try {
+      final response = SQLResponse(await apiClient.post(
+        Urls.postUrl,
+        data: FormData.fromMap({
+          'request': RequestType.getItemHistory.toString(),
+          'token': User.user.sessionToken,
+          'id': id,
+        }),
+      ));
+      return response.status == SQLResponseStatusTypes.success
+          ? response.history
+          : null;
     } catch (error) {
       myPrint(error);
       return null;

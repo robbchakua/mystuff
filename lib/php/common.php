@@ -296,6 +296,35 @@ function placeholders(int $count): string
     return implode(",", array_fill(0, $count, "?"));
 }
 
+function uploaded_image_mime(string $path): string
+{
+    // getimagesize validates the image structure and is part of PHP's standard
+    // image support, so it remains available on hosts that disable Fileinfo.
+    $details = function_exists("getimagesize") ? @getimagesize($path) : false;
+    if (!is_array($details) || !isset($details["mime"])) {
+        throw new InvalidArgumentException("The uploaded file is not an image");
+    }
+    $imageMime = strtolower((string) $details["mime"]);
+
+    // Fileinfo provides a useful second opinion when the extension is enabled,
+    // but it is optional because some shared hosts do not provide the class.
+    if (class_exists("finfo") && defined("FILEINFO_MIME_TYPE")) {
+        $fileInfo = new finfo(FILEINFO_MIME_TYPE);
+        $detected = $fileInfo->file($path);
+        if (
+            is_string($detected) &&
+            $detected !== "" &&
+            $detected !== "application/octet-stream" &&
+            !hash_equals($imageMime, strtolower($detected))
+        ) {
+            throw new InvalidArgumentException(
+                "The picture contents do not match its image type",
+            );
+        }
+    }
+    return $imageMime;
+}
+
 function uploaded_image(
     string $field,
     string $folder,
@@ -316,12 +345,12 @@ function uploaded_image(
     if ((int) $_FILES[$field]["size"] > 8 * 1024 * 1024) {
         throw new InvalidArgumentException("The picture is too large");
     }
+    $temporaryPath = (string) $_FILES[$field]["tmp_name"];
+    if (!is_uploaded_file($temporaryPath)) {
+        throw new InvalidArgumentException("The picture upload is invalid");
+    }
 
-    // Parentheses are required for method access on a newly constructed
-    // object on the PHP 8.1 runtime used by the production server.
-    $mime = (new finfo(FILEINFO_MIME_TYPE))->file(
-        $_FILES[$field]["tmp_name"],
-    );
+    $mime = uploaded_image_mime($temporaryPath);
     $extensions = [
         "image/jpeg" => "jpg",
         "image/png" => "png",
@@ -352,7 +381,7 @@ function uploaded_image(
     $filename = bin2hex(random_bytes(16)) . "." . $extensions[$mime];
     if (
         !move_uploaded_file(
-            $_FILES[$field]["tmp_name"],
+            $temporaryPath,
             $directory . "/" . $filename,
         )
     ) {

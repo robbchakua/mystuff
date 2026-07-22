@@ -11,7 +11,7 @@ CREATE TABLE `users` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `userid` VARCHAR(60) NOT NULL,
   `name` VARCHAR(120) NOT NULL,
-  `email` VARCHAR(190) NULL,
+  `email` VARCHAR(190) NOT NULL,
   `password_hash` VARCHAR(255) NOT NULL,
   `role` ENUM('admin', 'observer') NOT NULL DEFAULT 'observer',
   `is_active` TINYINT(1) NOT NULL DEFAULT 1,
@@ -97,17 +97,50 @@ CREATE TABLE `items` (
   `quantity` INT UNSIGNED NOT NULL DEFAULT 1,
   `description` TEXT NULL,
   `tags` VARCHAR(1000) NOT NULL DEFAULT '[]',
+  `status` ENUM('missing', 'in_use', 'in_location')
+    NOT NULL DEFAULT 'in_location',
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `items_bin_index` (`bin_id`),
   KEY `items_name_index` (`name`),
+  KEY `items_status_index` (`status`),
   KEY `items_created_by_index` (`created_by`),
   CONSTRAINT `items_bin_fk`
     FOREIGN KEY (`bin_id`) REFERENCES `bins` (`id`)
     ON DELETE CASCADE,
   CONSTRAINT `items_creator_fk`
     FOREIGN KEY (`created_by`) REFERENCES `users` (`id`)
+    ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE `item_history` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `item_id` BIGINT UNSIGNED NOT NULL,
+  `changed_by` BIGINT UNSIGNED NULL,
+  `changed_by_name` VARCHAR(120) NOT NULL,
+  `action` VARCHAR(40) NOT NULL,
+  `from_bin_id` BIGINT UNSIGNED NULL,
+  `to_bin_id` BIGINT UNSIGNED NULL,
+  `from_bin_name` VARCHAR(160) NULL,
+  `to_bin_name` VARCHAR(160) NULL,
+  `from_status` VARCHAR(20) NULL,
+  `to_status` VARCHAR(20) NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `item_history_item_date_index` (`item_id`, `created_at`),
+  KEY `item_history_actor_index` (`changed_by`),
+  CONSTRAINT `item_history_item_fk`
+    FOREIGN KEY (`item_id`) REFERENCES `items` (`id`)
+    ON DELETE CASCADE,
+  CONSTRAINT `item_history_actor_fk`
+    FOREIGN KEY (`changed_by`) REFERENCES `users` (`id`)
+    ON DELETE SET NULL,
+  CONSTRAINT `item_history_from_bin_fk`
+    FOREIGN KEY (`from_bin_id`) REFERENCES `bins` (`id`)
+    ON DELETE SET NULL,
+  CONSTRAINT `item_history_to_bin_fk`
+    FOREIGN KEY (`to_bin_id`) REFERENCES `bins` (`id`)
     ON DELETE SET NULL
 ) ENGINE=InnoDB;

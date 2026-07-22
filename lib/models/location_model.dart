@@ -102,7 +102,11 @@ class Location {
   }
 
   /// Updates this bin. [oldName] remains optional for calls made by the old UI.
-  Future<SQLResponse?> put([String? oldName, File? imageFile]) async {
+  Future<SQLResponse?> put([
+    String? oldName,
+    File? imageFile,
+    bool removeImage = false,
+  ]) async {
     try {
       final formData = FormData.fromMap({
         'request': RequestType.putBin.toString(),
@@ -113,6 +117,7 @@ class Location {
         'description': description ?? '',
         'location': location ?? '',
         'color': color ?? 'F44336',
+        'removeImage': removeImage,
         if (imageFile != null && imageFile.path.isNotEmpty)
           'image': await MultipartFile.fromFile(imageFile.path),
       });

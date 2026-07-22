@@ -111,6 +111,81 @@ function tags_json(mixed $value): string
     );
 }
 
+function parse_item_status(mixed $value): string
+{
+    $status = strtolower(trim((string) $value));
+    if (!in_array($status, ["missing", "in_use", "in_location"], true)) {
+        throw new InvalidArgumentException("The selected item status is invalid");
+    }
+    return $status;
+}
+
+function record_item_history(
+    PDO $db,
+    int $itemId,
+    array $user,
+    string $action,
+    ?int $fromBinId,
+    ?int $toBinId,
+    ?string $fromBinName,
+    ?string $toBinName,
+    ?string $fromStatus,
+    ?string $toStatus,
+): void {
+    $statement = $db->prepare(
+        "INSERT INTO item_history " .
+            "(item_id, changed_by, changed_by_name, action, from_bin_id, to_bin_id, " .
+            "from_bin_name, to_bin_name, from_status, to_status) " .
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    );
+    $statement->execute([
+        $itemId,
+        (int) $user["id"],
+        (string) $user["name"],
+        $action,
+        $fromBinId,
+        $toBinId,
+        $fromBinName,
+        $toBinName,
+        $fromStatus,
+        $toStatus,
+    ]);
+}
+
+function bin_path(array $bins, int $binId): string
+{
+    $names = [];
+    $visited = [];
+    $current = find_bin($bins, $binId);
+    while ($current !== null && !isset($visited[(int) $current["id"]])) {
+        $visited[(int) $current["id"]] = true;
+        array_unshift($names, (string) $current["name"]);
+        $current = $current["parent_id"] === null
+            ? null
+            : find_bin($bins, (int) $current["parent_id"]);
+    }
+    return implode(" / ", $names);
+}
+
+function write_csv_row($stream, array $row): void
+{
+    $safeRow = array_map(
+        static function (mixed $value): mixed {
+            if (
+                is_string($value) &&
+                preg_match('/^[\t\r\n ]*[=+\-@]/u', $value) === 1
+            ) {
+                return "'" . $value;
+            }
+            return $value;
+        },
+        $row,
+    );
+    if (fputcsv($stream, $safeRow, ",", '"', "") === false) {
+        throw new RuntimeException("The export could not be created");
+    }
+}
+
 function find_bin(array $bins, int $binId): ?array
 {
     foreach ($bins as $bin) {
@@ -198,6 +273,7 @@ function load_data(PDO $db, array $user): array
                 "quantity" => (int) $item["quantity"],
                 "description" => $item["description"] ?? "",
                 "tags" => parse_tags($item["tags"] ?? "[]"),
+                "status" => (string) ($item["status"] ?? "in_location"),
                 "canEdit" =>
                     permission_rank($permissions[(int) $item["bin_id"]]) >=
                     permission_rank("edit"),
@@ -220,6 +296,137 @@ try {
         respond("success", "Data loaded", load_data($db, $user));
     }
 
+    if ($request === "exportCsv") {
+        require_admin($user);
+        $bins = all_bins($db);
+        $creatorRows = $db->query("SELECT id, name FROM users")->fetchAll();
+        $creatorNames = array_column($creatorRows, "name", "id");
+        $items = $db
+            ->query(
+                "SELECT i.*, b.name AS bin_name, u.name AS creator_name " .
+                    "FROM items i JOIN bins b ON b.id = i.bin_id " .
+                    "LEFT JOIN users u ON u.id = i.created_by ORDER BY i.id",
+            )
+            ->fetchAll();
+        $stream = fopen("php://temp", "w+");
+        if ($stream === false) {
+            throw new RuntimeException("The export could not be created");
+        }
+        write_csv_row($stream, [
+            "record_type",
+            "id",
+            "name",
+            "bin_or_parent_id",
+            "bin_or_parent_path",
+            "description",
+            "status",
+            "is_multiple",
+            "quantity",
+            "tags",
+            "latitude",
+            "longitude",
+            "image_path",
+            "created_by",
+            "created_at",
+        ]);
+        foreach ($bins as $bin) {
+            $parentPath = $bin["parent_id"] === null
+                ? ""
+                : bin_path($bins, (int) $bin["parent_id"]);
+            write_csv_row($stream, [
+                "bin",
+                $bin["id"],
+                $bin["name"],
+                $bin["parent_id"],
+                $parentPath,
+                $bin["description"] ?? "",
+                "",
+                "",
+                "",
+                "",
+                $bin["latitude"],
+                $bin["longitude"],
+                $bin["image_path"],
+                $creatorNames[(int) $bin["created_by"]] ?? "",
+                $bin["created_at"],
+            ]);
+        }
+        foreach ($items as $item) {
+            write_csv_row($stream, [
+                "item",
+                $item["id"],
+                $item["name"],
+                $item["bin_id"],
+                bin_path($bins, (int) $item["bin_id"]),
+                $item["description"] ?? "",
+                $item["status"],
+                (int) $item["is_multiple"],
+                $item["quantity"],
+                implode("; ", parse_tags($item["tags"] ?? "[]")),
+                "",
+                "",
+                $item["image_path"],
+                $item["creator_name"] ?? "",
+                $item["created_at"],
+            ]);
+        }
+        rewind($stream);
+        $csv = stream_get_contents($stream);
+        fclose($stream);
+        if ($csv === false) {
+            throw new RuntimeException("The export could not be created");
+        }
+        header("Content-Type: text/csv; charset=utf-8");
+        header(
+            'Content-Disposition: attachment; filename="mystuff-inventory-' .
+                date("Y-m-d") .
+                '.csv"',
+        );
+        echo "\xEF\xBB\xBF" . $csv;
+        exit();
+    }
+
+    if ($request === "getItemHistory") {
+        $itemId =
+            nullable_int(input("id")) ??
+            throw new InvalidArgumentException("Item ID is required");
+        $itemStatement = $db->prepare(
+            "SELECT bin_id FROM items WHERE id = ? LIMIT 1",
+        );
+        $itemStatement->execute([$itemId]);
+        $item = $itemStatement->fetch();
+        if (!$item) {
+            respond("notFound", "Item not found", [], 404);
+        }
+        require_bin_permission($db, $user, (int) $item["bin_id"], "view");
+        $historyStatement = $db->prepare(
+            "SELECT id, item_id, changed_by, changed_by_name, action, " .
+                "from_bin_id, to_bin_id, from_bin_name, to_bin_name, " .
+                "from_status, to_status, created_at " .
+                "FROM item_history WHERE item_id = ? ORDER BY created_at DESC, id DESC",
+        );
+        $historyStatement->execute([$itemId]);
+        $history = $historyStatement->fetchAll();
+        if (($user["role"] ?? "") !== "admin") {
+            $visibleBins = effective_bin_permissions($db, $user);
+            foreach ($history as &$entry) {
+                foreach (["from", "to"] as $side) {
+                    $historyBinId = $entry[$side . "_bin_id"];
+                    if (
+                        $historyBinId === null ||
+                        !isset($visibleBins[(int) $historyBinId])
+                    ) {
+                        $entry[$side . "_bin_name"] = null;
+                    }
+                }
+            }
+            unset($entry);
+        }
+        respond("success", "Item history loaded", [
+            "history" => $history,
+        ]);
+    }
+
     if ($request === "postBin") {
         $parentId = nullable_int(input("parentId"));
         if ($parentId === null) {
@@ -240,16 +447,21 @@ try {
                 "(parent_id, created_by, name, description, image_path, latitude, longitude, color) " .
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         );
-        $statement->execute([
-            $parentId,
-            (int) $user["id"],
-            $name,
-            $description === "" ? null : $description,
-            $image,
-            $latitude,
-            $longitude,
-            $color,
-        ]);
+        try {
+            $statement->execute([
+                $parentId,
+                (int) $user["id"],
+                $name,
+                $description === "" ? null : $description,
+                $image,
+                $latitude,
+                $longitude,
+                $color,
+            ]);
+        } catch (Throwable $error) {
+            remove_image($image);
+            throw $error;
+        }
         respond(
             "success",
             "Bin created",
@@ -308,23 +520,33 @@ try {
         }
         $color = parse_color(input("color", $current["color"]));
         $image = uploaded_image("image", "bins", false);
-        $newImagePath = $image ?? $current["image_path"];
+        $removeImage = boolean_input("removeImage");
+        if ($removeImage && $image !== null) {
+            remove_image($image);
+            $image = null;
+        }
+        $newImagePath = $removeImage ? null : ($image ?? $current["image_path"]);
 
         $statement = $db->prepare(
             "UPDATE bins SET parent_id = ?, name = ?, description = ?, image_path = ?, " .
                 "latitude = ?, longitude = ?, color = ? WHERE id = ?",
         );
-        $statement->execute([
-            $parentId,
-            $name,
-            $description === "" ? null : $description,
-            $newImagePath,
-            $latitude,
-            $longitude,
-            $color,
-            $binId,
-        ]);
-        if ($image !== null) {
+        try {
+            $statement->execute([
+                $parentId,
+                $name,
+                $description === "" ? null : $description,
+                $newImagePath,
+                $latitude,
+                $longitude,
+                $color,
+                $binId,
+            ]);
+        } catch (Throwable $error) {
+            remove_image($image);
+            throw $error;
+        }
+        if ($image !== null || $removeImage) {
             remove_image($current["image_path"]);
         }
         respond("success", "Bin updated", load_data($db, $user));
@@ -385,6 +607,24 @@ try {
         $db->beginTransaction();
         try {
             if (!$deleteContents) {
+                $replacement = find_bin($bins, $replacementId);
+                $movedItems = $db
+                    ->prepare("SELECT id, status FROM items WHERE bin_id = ?");
+                $movedItems->execute([$binId]);
+                foreach ($movedItems->fetchAll() as $movedItem) {
+                    record_item_history(
+                        $db,
+                        (int) $movedItem["id"],
+                        $user,
+                        "moved_due_to_bin_delete",
+                        $binId,
+                        $replacementId,
+                        (string) $current["name"],
+                        $replacement["name"] ?? null,
+                        (string) $movedItem["status"],
+                        (string) $movedItem["status"],
+                    );
+                }
                 $db->prepare(
                     "UPDATE items SET bin_id = ? WHERE bin_id = ?",
                 )->execute([$replacementId, $binId]);
@@ -436,24 +676,48 @@ try {
         $quantity = max(1, (int) input("quantity", 1));
         $description = clean_text(input("description", ""), 10000, false);
         $tags = tags_json(input("tags", "[]"));
-        $image = uploaded_image("image", "items", true);
+        $status = parse_item_status(input("status", "in_location"));
+        $image = uploaded_image("image", "items", false);
 
-        $statement = $db->prepare(
-            "INSERT INTO items " .
-                "(bin_id, created_by, name, stored_at, image_path, is_multiple, quantity, description, tags) " .
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        );
-        $statement->execute([
-            $binId,
-            (int) $user["id"],
-            $name,
-            $storedAt,
-            $image,
-            $multiple ? 1 : 0,
-            $multiple ? $quantity : 1,
-            $description === "" ? null : $description,
-            $tags,
-        ]);
+        $db->beginTransaction();
+        try {
+            $statement = $db->prepare(
+                "INSERT INTO items " .
+                    "(bin_id, created_by, name, stored_at, image_path, is_multiple, quantity, description, tags, status) " .
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            );
+            $statement->execute([
+                $binId,
+                (int) $user["id"],
+                $name,
+                $storedAt,
+                $image,
+                $multiple ? 1 : 0,
+                $multiple ? $quantity : 1,
+                $description === "" ? null : $description,
+                $tags,
+                $status,
+            ]);
+            $itemId = (int) $db->lastInsertId();
+            $bin = find_bin(all_bins($db), $binId);
+            record_item_history(
+                $db,
+                $itemId,
+                $user,
+                "created",
+                null,
+                $binId,
+                null,
+                $bin["name"] ?? null,
+                null,
+                $status,
+            );
+            $db->commit();
+        } catch (Throwable $error) {
+            $db->rollBack();
+            remove_image($image);
+            throw $error;
+        }
         respond("success", "Item created", load_data($db, $user), 201);
     }
 
@@ -486,24 +750,62 @@ try {
             false,
         );
         $tags = tags_json(input("tags", $item["tags"] ?? "[]"));
+        $status = parse_item_status(input("status", $item["status"]));
         $image = uploaded_image("image", "items", false);
-        $newImagePath = $image ?? $item["image_path"];
+        $removeImage = boolean_input("removeImage");
+        if ($removeImage && $image !== null) {
+            remove_image($image);
+            $image = null;
+        }
+        $newImagePath = $removeImage ? null : ($image ?? $item["image_path"]);
 
-        $statement = $db->prepare(
-            "UPDATE items SET bin_id = ?, name = ?, image_path = ?, " .
-                "is_multiple = ?, quantity = ?, description = ?, tags = ? WHERE id = ?",
-        );
-        $statement->execute([
-            $binId,
-            $name,
-            $newImagePath,
-            $multiple ? 1 : 0,
-            $multiple ? $quantity : 1,
-            $description === "" ? null : $description,
-            $tags,
-            $itemId,
-        ]);
-        if ($image !== null) {
+        $bins = all_bins($db);
+        $oldBin = find_bin($bins, (int) $item["bin_id"]);
+        $newBin = find_bin($bins, $binId);
+        $binChanged = (int) $item["bin_id"] !== $binId;
+        $statusChanged = (string) $item["status"] !== $status;
+        $action = $binChanged && $statusChanged
+            ? "moved_and_status_changed"
+            : ($binChanged
+                ? "moved"
+                : ($statusChanged ? "status_changed" : "updated"));
+
+        $db->beginTransaction();
+        try {
+            $statement = $db->prepare(
+                "UPDATE items SET bin_id = ?, name = ?, image_path = ?, " .
+                    "is_multiple = ?, quantity = ?, description = ?, tags = ?, status = ? WHERE id = ?",
+            );
+            $statement->execute([
+                $binId,
+                $name,
+                $newImagePath,
+                $multiple ? 1 : 0,
+                $multiple ? $quantity : 1,
+                $description === "" ? null : $description,
+                $tags,
+                $status,
+                $itemId,
+            ]);
+            record_item_history(
+                $db,
+                $itemId,
+                $user,
+                $action,
+                (int) $item["bin_id"],
+                $binId,
+                $oldBin["name"] ?? null,
+                $newBin["name"] ?? null,
+                (string) $item["status"],
+                $status,
+            );
+            $db->commit();
+        } catch (Throwable $error) {
+            $db->rollBack();
+            remove_image($image);
+            throw $error;
+        }
+        if ($image !== null || $removeImage) {
             remove_image($item["image_path"]);
         }
         respond("success", "Item updated", load_data($db, $user));

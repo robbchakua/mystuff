@@ -4,15 +4,15 @@ import 'package:dad_app/models/item_model.dart';
 import 'package:dad_app/models/location_model.dart';
 import 'package:dad_app/models/response_model.dart';
 import 'package:dad_app/models/user_model.dart';
-import 'package:dad_app/styles/themes.dart';
 import 'package:dad_app/utils/constants.dart';
+import 'package:dad_app/utils/item_status.dart';
 import 'package:dad_app/utils/utils.dart';
 import 'package:dad_app/widgets/item_tags_field.dart';
+import 'package:dad_app/widgets/optional_image_picker.dart';
 import 'package:dad_app/widgets/text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
-import 'package:image_picker/image_picker.dart';
 
 class NewItemColumn extends StatefulWidget {
   const NewItemColumn({super.key});
@@ -30,6 +30,8 @@ class NewItemColumnState extends State<NewItemColumn> {
   bool multipleBool = false;
   int? selectedBinId;
   List<String> selectedTags = [];
+  ItemStatus selectedStatus = ItemStatus.inLocation;
+  File? itemImage;
 
   @override
   void initState() {
@@ -108,7 +110,10 @@ class NewItemColumnState extends State<NewItemColumn> {
                     items: editableBins()
                         .map((bin) => DropdownMenuItem<int>(
                               value: bin.id,
-                              child: BodyText(binDisplayPath(bin)),
+                              child: Text(
+                                binDisplayPath(bin),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ))
                         .toList(),
                     onChanged: (value) =>
@@ -119,33 +124,26 @@ class NewItemColumnState extends State<NewItemColumn> {
                     maxLines: 2,
                     decoration: const InputDecoration(labelText: 'Description'),
                   ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      TextButton.icon(
-                        onPressed: () async {
-                          final picture = await ImagePicker().pickImage(
-                            source: ImageSource.camera,
-                            imageQuality: 35,
-                          );
-                          if (picture != null) {
-                            setDialogState(() => binImage = File(picture.path));
-                          }
-                        },
-                        icon: const Icon(Icons.camera_alt),
-                        label: BodyText(
-                            binImage == null ? 'Bin picture' : 'Picture added'),
-                      ),
-                      FloatingActionButton.small(
-                        heroTag: 'new-bin-color',
-                        backgroundColor: color,
-                        onPressed: () async {
-                          final picked = await _pickColor(color);
-                          if (picked != null)
-                            setDialogState(() => color = picked);
-                        },
-                      ),
-                    ],
+                  OptionalImagePicker(
+                    label: 'Bin picture (optional)',
+                    onChanged: (selection) =>
+                        binImage = selection.removeExisting
+                            ? null
+                            : selection.file,
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: FloatingActionButton.small(
+                      heroTag: 'new-bin-color',
+                      backgroundColor: color,
+                      onPressed: () async {
+                        final picked = await _pickColor(color);
+                        if (picked != null) {
+                          setDialogState(() => color = picked);
+                        }
+                      },
+                    ),
                   ),
                 ],
               ),
@@ -225,22 +223,9 @@ class NewItemColumnState extends State<NewItemColumn> {
               ),
               Padding(
                 padding: const EdgeInsets.all(8),
-                child: AspectRatio(
-                  aspectRatio: 4 / 3,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: secondaryColor(context),
-                      border: Border.all(color: inverseColor(context)),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: Image.file(
-                      file,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) =>
-                          const Icon(Icons.image_not_supported),
-                    ),
-                  ),
+                child: OptionalImagePicker(
+                  label: 'Item picture (optional)',
+                  onChanged: (selection) => itemImage = selection.file,
                 ),
               ),
               Padding(
@@ -267,6 +252,22 @@ class NewItemColumnState extends State<NewItemColumn> {
                   onChanged: (tags) => selectedTags = tags,
                 ),
               ),
+              Padding(
+                padding: const EdgeInsets.all(8),
+                child: DropdownButtonFormField<ItemStatus>(
+                  value: selectedStatus,
+                  decoration: const InputDecoration(labelText: 'Status'),
+                  items: ItemStatus.values
+                      .map((status) => DropdownMenuItem(
+                            value: status,
+                            child: Text(status.label),
+                          ))
+                      .toList(),
+                  onChanged: (value) => setState(
+                    () => selectedStatus = value ?? ItemStatus.inLocation,
+                  ),
+                ),
+              ),
               const Divider(),
               Row(
                 children: [
@@ -286,7 +287,10 @@ class NewItemColumnState extends State<NewItemColumn> {
                       items: bins
                           .map((bin) => DropdownMenuItem<int>(
                                 value: bin.id,
-                                child: BodyText(binDisplayPath(bin)),
+                                child: Text(
+                                  binDisplayPath(bin),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ))
                           .toList(),
                       onChanged: (value) =>
@@ -352,8 +356,9 @@ class NewItemColumnState extends State<NewItemColumn> {
                         quantity: int.tryParse(quantityController.text) ?? 1,
                         description: safeString(descriptionController.text),
                         tags: selectedTags,
+                        status: selectedStatus,
                       );
-                      final response = await item.post();
+                      final response = await item.post(imageFile: itemImage);
                       if (!mounted) return;
                       setState(() => processing = false);
                       if (response?.status == SQLResponseStatusTypes.success) {

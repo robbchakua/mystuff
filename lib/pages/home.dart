@@ -7,6 +7,7 @@ import 'package:dad_app/models/response_model.dart';
 import 'package:dad_app/pages/location_page.dart';
 import 'package:dad_app/models/user_model.dart';
 import 'package:dad_app/utils/init.dart';
+import 'package:dad_app/utils/item_status.dart';
 import 'package:dad_app/widgets/drawer.dart';
 import 'package:dad_app/widgets/text.dart';
 import 'package:flutter/services.dart';
@@ -15,14 +16,12 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get/get.dart' hide Response, FormData;
 import 'package:flutter/material.dart' hide Title;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:location/location.dart';
 import '../styles/themes.dart';
 import '../utils/utils.dart';
 import '../utils/constants.dart';
 import '../widgets/new_item_popup_card.dart';
 import '../widgets/view_item_popup.dart';
-import 'dart:io';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -36,6 +35,10 @@ class _HomeState extends State<Home> {
       GlobalKey<ScaffoldState>(debugLabel: 'homeScaffold');
   List<Item> viewList = [];
   SortValue? sortValue;
+  String _searchQuery = '';
+  ItemStatus? _statusFilter;
+  String? _tagFilter;
+  int? _binFilter;
 
   Future confirmExit() => showDialog<bool>(
       context: context,
@@ -65,7 +68,7 @@ class _HomeState extends State<Home> {
             backgroundColor: primaryColor(context),
           ));
 
-  void addItem() async {
+  Future<void> addItem() async {
     if (editableBins().isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -75,21 +78,12 @@ class _HomeState extends State<Home> {
       }
       return;
     }
-    ImagePicker imagePicker = ImagePicker();
-    XFile? compressedImage = await imagePicker.pickImage(
-        source: ImageSource.camera, imageQuality: 15);
-
-    if (compressedImage != null) {
-      setState(() {
-        processing = true;
-        noItems = false;
-        file = File(compressedImage.path);
-      });
-      await addItemPage();
-      setState(() {
-        processing = false;
-      });
-    }
+    await addItemPage();
+    if (!mounted) return;
+    setState(() {
+      noItems = itemsJsonList.isEmpty;
+      _applyItemFilters(notify: false);
+    });
   }
 
   Future<void> addBin() async {
@@ -136,33 +130,38 @@ class _HomeState extends State<Home> {
     if (mounted) setState(() {});
   }
 
-  Future viewItem(
-          {required int id,
-          required int locationId,
-          required String name,
-          required String location,
-          required bool multiple,
-          required int quantity,
-          required String description,
-          required List<String> tags}) =>
-      showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-              backgroundColor: processing
-                  ? Colors.transparent
-                  : stringToColor(
-                      locationsJsonList[getLocationIndexFromId(locationId)]
-                          .color!),
-              content: ViewItemColumn(
-                id: id,
-                name: name,
-                location: location,
-                multiple: multiple,
-                quantity: quantity,
-                description: description,
-                tags: tags,
-                locationId: locationId,
-              )));
+  Future<void> viewItem({
+    required int id,
+    required int locationId,
+    required String name,
+    required String location,
+    required bool multiple,
+    required int quantity,
+    required String description,
+    required List<String> tags,
+  }) async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: processing
+            ? Colors.transparent
+            : stringToColor(
+                locationsJsonList[getLocationIndexFromId(locationId)].color!,
+              ),
+        content: ViewItemColumn(
+          id: id,
+          name: name,
+          location: location,
+          multiple: multiple,
+          quantity: quantity,
+          description: description,
+          tags: tags,
+          locationId: locationId,
+        ),
+      ),
+    );
+    if (mounted) _applyItemFilters();
+  }
 
   static Future<void> pop({bool? animated}) async {
     await SystemChannels.platform
@@ -173,18 +172,6 @@ class _HomeState extends State<Home> {
   void initState() {
     makeUserVariable();
     super.initState();
-  }
-
-  void hasEmail() {
-    if (User.user.email! != 'NO-EMAIL') {
-      setState(() {
-        hasEmailBool = true;
-      });
-    } else {
-      setState(() {
-        hasEmailBool = false;
-      });
-    }
   }
 
   Future showAllMarkers(bool isComplete) async {
@@ -314,7 +301,6 @@ class _HomeState extends State<Home> {
       User.user = tempList[0];
       firstName = User.user.name!.split(" ").first;
     });
-    hasEmail();
     setPreferences();
     if (itemsJsonList.isEmpty) {
       getData();
@@ -347,18 +333,11 @@ class _HomeState extends State<Home> {
       getMarkers();
       resetItemList();
       resetLocationList();
-      //If there's new user or no items found
-      if (itemsJsonList.isEmpty) {
-        setState(() {
-          noItems = true;
-          isLoaded = true;
-        });
-      } else {
-        setState(() {
-          noItems = false;
-          isLoaded = true;
-        });
-      }
+      setState(() {
+        noItems = itemsJsonList.isEmpty;
+        isLoaded = true;
+        _applyItemFilters(notify: false);
+      });
     }
     //If there is an error
     else if (sqlResponse?.status != SQLResponseStatusTypes.success ||
@@ -371,31 +350,149 @@ class _HomeState extends State<Home> {
     }
   }
 
-  void searchItem(String keyword) async {
-    if (keyword.isEmpty) {
-      resetItemList();
-    } else {
-      itemsUpdatingList = [];
-      for (var i = 0; i < itemsJsonList.length; i++) {
-        final normalized = keyword.toLowerCase();
-        bool found = (itemsJsonList[i].name ?? '')
-                .toLowerCase()
-                .contains(normalized) ||
-            (itemsJsonList[i].location ?? '')
-                .toLowerCase()
-                .contains(normalized) ||
-            itemsJsonList[i]
-                .tags
-                .any((tag) => tag.toLowerCase().contains(normalized));
-        if (found) {
-          itemsUpdatingList.add(itemsJsonList[i]);
-        }
-      }
+  void searchItem(String keyword) {
+    _searchQuery = keyword.trim().toLowerCase();
+    _applyItemFilters();
+  }
+
+  void _applyItemFilters({bool notify = true}) {
+    final filtered = itemsJsonList.where((item) {
+      final matchesSearch = _searchQuery.isEmpty ||
+          (item.name ?? '').toLowerCase().contains(_searchQuery) ||
+          (item.location ?? '').toLowerCase().contains(_searchQuery) ||
+          item.tags.any((tag) => tag.toLowerCase().contains(_searchQuery));
+      final matchesStatus =
+          _statusFilter == null || item.status == _statusFilter;
+      final matchesTag = _tagFilter == null || item.tags.any(
+            (tag) => tag.toLowerCase() == _tagFilter!.toLowerCase(),
+          );
+      final matchesBin = _binFilter == null || item.binId == _binFilter;
+      return matchesSearch && matchesStatus && matchesTag && matchesBin;
+    }).toList();
+
+    void update() {
+      itemsUpdatingList = filtered;
+      viewList = filtered;
+      itemsUpdatingListLength = filtered.length;
     }
-    setState(() {
-      viewList = itemsUpdatingList;
-      itemsUpdatingListLength = itemsUpdatingList.length;
-    });
+
+    if (notify) {
+      setState(update);
+    } else {
+      update();
+    }
+  }
+
+  Future<void> _showFilters() async {
+    ItemStatus? status = _statusFilter;
+    String? tag = _tagFilter;
+    int? binId = _binFilter;
+    final tags = itemsJsonList.expand((item) => item.tags).toSet().toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final bins = [...locationsJsonList]
+      ..sort((a, b) => binDisplayPath(a).compareTo(binDisplayPath(b)));
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Header('Filter Items'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<ItemStatus?>(
+                  value: status,
+                  decoration: const InputDecoration(labelText: 'Status'),
+                  items: [
+                    const DropdownMenuItem<ItemStatus?>(
+                      value: null,
+                      child: Text('All statuses'),
+                    ),
+                    ...ItemStatus.values.map(
+                      (value) => DropdownMenuItem<ItemStatus?>(
+                        value: value,
+                        child: Text(value.label),
+                      ),
+                    ),
+                  ],
+                  onChanged: (value) =>
+                      setDialogState(() => status = value),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String?>(
+                  value: tag,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Tag'),
+                  items: [
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('All tags'),
+                    ),
+                    ...tags.map(
+                      (value) => DropdownMenuItem<String?>(
+                        value: value,
+                        child: Text(value),
+                      ),
+                    ),
+                  ],
+                  onChanged: (value) => setDialogState(() => tag = value),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int?>(
+                  value: binId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Bin'),
+                  items: [
+                    const DropdownMenuItem<int?>(
+                      value: null,
+                      child: Text('All bins'),
+                    ),
+                    ...bins.map(
+                      (bin) => DropdownMenuItem<int?>(
+                        value: bin.id,
+                        child: Text(
+                          binDisplayPath(bin),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  ],
+                  onChanged: (value) => setDialogState(() => binId = value),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  _statusFilter = null;
+                  _tagFilter = null;
+                  _binFilter = null;
+                  _applyItemFilters(notify: false);
+                });
+                Navigator.pop(dialogContext);
+              },
+              child: const ButtonText('Clear'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                setState(() {
+                  _statusFilter = status;
+                  _tagFilter = tag;
+                  _binFilter = binId;
+                  listItems = true;
+                  _applyItemFilters(notify: false);
+                });
+                Navigator.pop(dialogContext);
+              },
+              child: const ButtonText('Apply'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void sortNearMe() {
@@ -547,7 +644,7 @@ class _HomeState extends State<Home> {
                                     controller: searchController,
                                     hintText: "Search",
                                     onTap: () => setState(() {
-                                      resetItemList();
+                                      _applyItemFilters(notify: false);
                                       listItems = true;
                                     }),
                                     onChanged: (value) => {
@@ -559,42 +656,24 @@ class _HomeState extends State<Home> {
                                     leading: const Icon(Icons.search),
                                     trailing: [
                                       IconButton(
-                                          onPressed: () async {
-                                            if (!networkError) {
-                                              if (isLoaded) {
-                                                if (userLocation ==
-                                                    const LatLng(0, 0)) {
-                                                  setState(() {
-                                                    processing = true;
-                                                  });
-                                                  LocationData locationData =
-                                                      await gvLocation
-                                                          .getLocation();
-                                                  setState(() {
-                                                    userLocation = LatLng(
-                                                        locationData.latitude!,
-                                                        locationData
-                                                            .longitude!);
-                                                  });
-                                                }
-                                                addItem();
-                                                setState(() {
-                                                  processing = false;
-                                                });
-                                              } else {
-                                                ScaffoldMessenger.of(context)
-                                                    .showSnackBar(const SnackBar(
-                                                        content: BodyText(
-                                                            'Items still loading...')));
-                                              }
-                                            } else {
-                                              ScaffoldMessenger.of(context)
-                                                  .showSnackBar(const SnackBar(
-                                                      content: BodyText(
-                                                          'Network Error...')));
-                                            }
-                                          },
-                                          icon: const Icon(Icons.add)),
+                                        tooltip: 'Add item',
+                                        onPressed: !networkError && isLoaded
+                                            ? addItem
+                                            : null,
+                                        icon: const Icon(Icons.add),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Filter items',
+                                        onPressed: _showFilters,
+                                        icon: Icon(
+                                          Icons.filter_alt_outlined,
+                                          color: _statusFilter != null ||
+                                                  _tagFilter != null ||
+                                                  _binFilter != null
+                                              ? Colors.amber
+                                              : null,
+                                        ),
+                                      ),
                                       PopupMenuButton<SortValue>(
                                         onOpened: () {
                                           if (!listItems) {
@@ -712,42 +791,9 @@ class _HomeState extends State<Home> {
                                           MainAxisAlignment.center,
                                       children: [
                                         FloatingActionButton.extended(
-                                            onPressed: () async {
-                                              if (!networkError) {
-                                                if (isLoaded) {
-                                                  if (userLocation ==
-                                                      const LatLng(0, 0)) {
-                                                    setState(() {
-                                                      processing = true;
-                                                    });
-                                                    LocationData locationData =
-                                                        await gvLocation
-                                                            .getLocation();
-                                                    setState(() {
-                                                      userLocation = LatLng(
-                                                          locationData
-                                                              .latitude!,
-                                                          locationData
-                                                              .longitude!);
-                                                    });
-                                                  }
-                                                  addItem();
-                                                  setState(() {
-                                                    processing = false;
-                                                  });
-                                                } else {
-                                                  ScaffoldMessenger.of(context)
-                                                      .showSnackBar(const SnackBar(
-                                                          content: BodyText(
-                                                              'Items still loading...')));
-                                                }
-                                              } else {
-                                                ScaffoldMessenger.of(context)
-                                                    .showSnackBar(const SnackBar(
-                                                        content: BodyText(
-                                                            'Network Error...')));
-                                              }
-                                            },
+                                            onPressed: !networkError && isLoaded
+                                                ? addItem
+                                                : null,
                                             heroTag: 'add-item',
                                             icon: Icon(Icons.add,
                                                 color: inverseColor(context)),
@@ -845,43 +891,45 @@ class _HomeState extends State<Home> {
                                         : noItems
                                             ? Center(
                                                 child: ElevatedButton(
-                                                    onPressed: () async {
-                                                      if (isLoaded) {
-                                                        if (userLocation ==
-                                                            const LatLng(
-                                                                0, 0)) {
-                                                          setState(() {
-                                                            processing = true;
-                                                          });
-                                                          LocationData
-                                                              locationData =
-                                                              await gvLocation
-                                                                  .getLocation();
-                                                          setState(() {
-                                                            userLocation = LatLng(
-                                                                locationData
-                                                                    .latitude!,
-                                                                locationData
-                                                                    .longitude!);
-                                                          });
-                                                        }
-                                                        addItem();
-                                                        setState(() {
-                                                          processing = false;
-                                                        });
-                                                      } else {
-                                                        ScaffoldMessenger.of(
-                                                                context)
-                                                            .showSnackBar(
-                                                                const SnackBar(
-                                                                    content:
-                                                                        BodyText(
-                                                                            'Items still loading...')));
-                                                      }
-                                                    },
+                                                    onPressed:
+                                                        isLoaded ? addItem : null,
                                                     child: const ButtonText(
                                                         'Add Item')))
-                                            : isLoaded
+                                            : isLoaded &&
+                                                    itemsUpdatingList.isEmpty
+                                                ? Center(
+                                                    child: Column(
+                                                      mainAxisSize:
+                                                          MainAxisSize.min,
+                                                      children: [
+                                                        const BodyText(
+                                                          'No items match these filters.',
+                                                        ),
+                                                        const SizedBox(
+                                                            height: 8),
+                                                        TextButton(
+                                                          onPressed: () {
+                                                            searchController
+                                                                .clear();
+                                                            setState(() {
+                                                              _searchQuery = '';
+                                                              _statusFilter =
+                                                                  null;
+                                                              _tagFilter = null;
+                                                              _binFilter = null;
+                                                              _applyItemFilters(
+                                                                notify: false,
+                                                              );
+                                                            });
+                                                          },
+                                                          child: const ButtonText(
+                                                            'Clear filters',
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  )
+                                                : isLoaded
                                                 ? ListView.builder(
                                                     itemBuilder:
                                                         (context, index) {
@@ -933,50 +981,30 @@ class _HomeState extends State<Home> {
                                                                       .tags,
                                                             );
                                                           },
-                                                          trailing:
-                                                              CachedNetworkImage(
-                                                            height: screenWidth(
-                                                                    context) /
-                                                                7,
-                                                            width: screenWidth(
-                                                                    context) /
-                                                                7,
-                                                            fit: BoxFit.cover,
-                                                            imageUrl:
-                                                                "${Urls.baseUrl}/"
-                                                                "${itemsUpdatingList[index].image}",
-                                                            progressIndicatorBuilder: (context,
-                                                                    url,
-                                                                    downloadProgress) =>
-                                                                CircularProgressIndicator(
-                                                                    color: Colors
-                                                                        .white,
-                                                                    value: downloadProgress
-                                                                        .progress),
-                                                            errorWidget:
-                                                                (context, url,
-                                                                    error) {
-                                                              myPrint(error);
-                                                              return Image.file(
-                                                                file,
-                                                                fit: BoxFit
-                                                                    .contain,
-                                                                height: screenHeight(
-                                                                        context) /
-                                                                    20,
-                                                                errorBuilder:
-                                                                    (context,
-                                                                        error,
-                                                                        stackTrace) {
-                                                                  myPrint(
-                                                                      error);
-                                                                  return const Icon(
-                                                                      Icons
-                                                                          .image_not_supported);
-                                                                },
-                                                              );
-                                                            },
-                                                          ),
+                                                          trailing: itemsUpdatingList[
+                                                                          index]
+                                                                      .image ==
+                                                                  null ||
+                                                                  itemsUpdatingList[
+                                                                          index]
+                                                                      .image!
+                                                                      .isEmpty
+                                                              ? const Icon(Icons
+                                                                  .image_not_supported_outlined)
+                                                              : CachedNetworkImage(
+                                                                  height: 60,
+                                                                  width: 60,
+                                                                  fit: BoxFit
+                                                                      .cover,
+                                                                  imageUrl:
+                                                                      "${Urls.baseUrl}/${itemsUpdatingList[index].image}",
+                                                                  errorWidget: (_,
+                                                                          __,
+                                                                          ___) =>
+                                                                      const Icon(
+                                                                          Icons
+                                                                              .image_not_supported),
+                                                                ),
                                                           title: Row(
                                                             children: [
                                                               Expanded(
@@ -1020,6 +1048,22 @@ class _HomeState extends State<Home> {
                                                                             12.0,
                                                                             16.0)
                                                                         .toDouble()),
+                                                              ),
+                                                              Text(
+                                                                itemsUpdatingList[
+                                                                        index]
+                                                                    .status
+                                                                    .label,
+                                                                style: TextStyle(
+                                                                  color: itemsUpdatingList[
+                                                                          index]
+                                                                      .status
+                                                                      .color,
+                                                                  fontSize: 12,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .w700,
+                                                                ),
                                                               ),
                                                               if (itemsUpdatingList[
                                                                       index]

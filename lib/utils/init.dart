@@ -49,7 +49,7 @@ void clearData() {
   userLocation = const LatLng(0, 0);
   file = File('');
   locationsCloseToUserList = [];
-  usernameController.text = '';
+  emailController.text = '';
   markers = {};
   networkError = false;
 }

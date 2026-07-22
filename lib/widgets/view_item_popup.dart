@@ -1,19 +1,18 @@
-import 'dart:io';
-
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:dad_app/models/item_history_model.dart';
 import 'package:dad_app/models/item_model.dart';
 import 'package:dad_app/models/response_model.dart';
 import 'package:dad_app/pages/location_page.dart';
 import 'package:dad_app/styles/themes.dart';
 import 'package:dad_app/utils/constants.dart';
 import 'package:dad_app/utils/init.dart';
+import 'package:dad_app/utils/item_status.dart';
 import 'package:dad_app/utils/utils.dart';
 import 'package:dad_app/widgets/text.dart';
 import 'package:dad_app/widgets/update_item_popup_card.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 class ViewItemColumn extends StatefulWidget {
@@ -65,6 +64,7 @@ class _ViewItemColumnState extends State<ViewItemColumn> {
           quantity: item?.quantity ?? widget.quantity,
           oldImage: item?.image,
           tags: item?.tags ?? widget.tags,
+          status: item?.status ?? ItemStatus.inLocation,
         ),
         backgroundColor: primaryColor(context),
       ),
@@ -72,16 +72,55 @@ class _ViewItemColumnState extends State<ViewItemColumn> {
   }
 
   Future<void> _updateItem() async {
-    final compressedImage = await ImagePicker().pickImage(
-      source: ImageSource.camera,
-      imageQuality: 15,
-    );
-    if (compressedImage == null || !mounted) return;
-
-    file = File(compressedImage.path);
     await _showUpdateDialog();
-    if (mounted) Navigator.pop(context);
+    if (mounted) setState(() {});
   }
+
+  Future<void> _showHistory() async {
+    final history = await Item(id: widget.id).getHistory();
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Header('Item History'),
+        content: SizedBox(
+          width: 520,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.65,
+            ),
+            child: history == null
+                ? const BodyText('Could not load this item’s history.')
+                : history.isEmpty
+                    ? const BodyText('No history has been recorded yet.')
+                    : ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: history.length,
+                        separatorBuilder: (_, __) => const Divider(),
+                        itemBuilder: (context, index) =>
+                            _historyTile(history[index]),
+                      ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const ButtonText('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _historyTile(ItemHistoryEntry entry) => ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.history),
+        title: Text(entry.summary),
+        subtitle: Text(
+          '${entry.actorName}'
+          '${entry.createdAt == null ? '' : ' • ${DateFormat.yMMMd().add_jm().format(entry.createdAt!.toLocal())}'}',
+        ),
+      );
 
   Future<void> _deleteItem(String title) async {
     final confirmed = await showDialog<bool>(
@@ -118,7 +157,7 @@ class _ViewItemColumnState extends State<ViewItemColumn> {
   }
 
   Future<void> _showOnMap() async {
-    final bin = getLocationFromId(widget.locationId);
+    final bin = getLocationFromId(_currentItem?.binId ?? widget.locationId);
     if (bin == null || !(bin.location?.contains(',') ?? false)) return;
     if (networkError) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -153,7 +192,7 @@ class _ViewItemColumnState extends State<ViewItemColumn> {
         child: BodyText('This item is no longer available.'),
       );
     }
-    final bin = getLocationFromId(widget.locationId);
+    final bin = getLocationFromId(item.binId ?? widget.locationId);
     final tags = item.tags.isEmpty ? widget.tags : item.tags;
     final storedAt = item.storeDate;
 
@@ -178,19 +217,19 @@ class _ViewItemColumnState extends State<ViewItemColumn> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   clipBehavior: Clip.antiAlias,
-                  child: CachedNetworkImage(
-                    fit: BoxFit.cover,
-                    imageUrl: '${Urls.baseUrl}/${item.image ?? ''}',
-                    progressIndicatorBuilder: (_, __, progress) => Center(
-                      child: CircularProgressIndicator(value: progress.progress),
-                    ),
-                    errorWidget: (_, __, ___) => Image.file(
-                      file,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) =>
-                          const Icon(Icons.image_not_supported),
-                    ),
-                  ),
+                  child: item.image == null || item.image!.isEmpty
+                      ? const Icon(Icons.image_not_supported_outlined, size: 54)
+                      : CachedNetworkImage(
+                          fit: BoxFit.cover,
+                          imageUrl: '${Urls.baseUrl}/${item.image}',
+                          progressIndicatorBuilder: (_, __, progress) => Center(
+                            child: CircularProgressIndicator(
+                              value: progress.progress,
+                            ),
+                          ),
+                          errorWidget: (_, __, ___) =>
+                              const Icon(Icons.image_not_supported),
+                        ),
                 ),
               ),
               const SizedBox(height: 16),
@@ -214,6 +253,15 @@ class _ViewItemColumnState extends State<ViewItemColumn> {
                 const SizedBox(height: 12),
                 BodyText(item.description!),
               ],
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Chip(
+                  avatar: Icon(item.status.icon, color: item.status.color),
+                  label: Text(item.status.label),
+                  side: BorderSide(color: item.status.color),
+                ),
+              ),
               if (tags.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 Wrap(
@@ -227,6 +275,12 @@ class _ViewItemColumnState extends State<ViewItemColumn> {
                 BodyText('Saved on ${DateFormat.yMMMMd().format(storedAt)}'),
               const SizedBox(height: 8),
               BodyText('Number of item(s): ${item.quantity ?? 1}'),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _showHistory,
+                icon: const Icon(Icons.history),
+                label: const Text('View history'),
+              ),
               if (item.canEdit) ...[
                 const SizedBox(height: 20),
                 Wrap(

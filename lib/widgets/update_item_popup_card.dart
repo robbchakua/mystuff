@@ -1,9 +1,12 @@
+import 'dart:io';
+
 import 'package:dad_app/models/item_model.dart';
 import 'package:dad_app/models/response_model.dart';
-import 'package:dad_app/styles/themes.dart';
 import 'package:dad_app/utils/constants.dart';
+import 'package:dad_app/utils/item_status.dart';
 import 'package:dad_app/utils/utils.dart';
 import 'package:dad_app/widgets/item_tags_field.dart';
+import 'package:dad_app/widgets/optional_image_picker.dart';
 import 'package:dad_app/widgets/text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -17,6 +20,7 @@ class UpdateItemColumn extends StatefulWidget {
   final String? description;
   final String? oldImage;
   final List<String> tags;
+  final ItemStatus status;
 
   const UpdateItemColumn({
     super.key,
@@ -28,6 +32,7 @@ class UpdateItemColumn extends StatefulWidget {
     this.description,
     this.oldImage,
     this.tags = const [],
+    this.status = ItemStatus.inLocation,
   });
 
   @override
@@ -43,6 +48,9 @@ class _UpdateItemColumnState extends State<UpdateItemColumn> {
   bool multipleBool = false;
   int? selectedBinId;
   late List<String> selectedTags;
+  late ItemStatus selectedStatus;
+  File? selectedImage;
+  bool removeImage = false;
 
   @override
   void initState() {
@@ -52,10 +60,12 @@ class _UpdateItemColumnState extends State<UpdateItemColumn> {
     quantityController.text = (widget.quantity ?? 1).toString();
     multipleBool = widget.multiple ?? false;
     selectedTags = List.of(widget.tags);
+    selectedStatus = widget.status;
     for (final item in itemsJsonList) {
       if (item.id == widget.id) {
         selectedBinId = item.binId;
         if (selectedTags.isEmpty) selectedTags = List.of(item.tags);
+        selectedStatus = item.status;
         break;
       }
     }
@@ -100,22 +110,13 @@ class _UpdateItemColumnState extends State<UpdateItemColumn> {
             ),
             Padding(
               padding: const EdgeInsets.all(8),
-              child: AspectRatio(
-                aspectRatio: 4 / 3,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: secondaryColor(context),
-                    border: Border.all(color: inverseColor(context)),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: Image.file(
-                    file,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) =>
-                        const Icon(Icons.image_not_supported),
-                  ),
-                ),
+              child: OptionalImagePicker(
+                existingImage: widget.oldImage,
+                label: 'Item picture (optional)',
+                onChanged: (selection) {
+                  selectedImage = selection.file;
+                  removeImage = selection.removeExisting;
+                },
               ),
             ),
             Padding(
@@ -144,6 +145,22 @@ class _UpdateItemColumnState extends State<UpdateItemColumn> {
                 onChanged: (tags) => selectedTags = tags,
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: DropdownButtonFormField<ItemStatus>(
+                value: selectedStatus,
+                decoration: const InputDecoration(labelText: 'Status'),
+                items: ItemStatus.values
+                    .map((status) => DropdownMenuItem(
+                          value: status,
+                          child: Text(status.label),
+                        ))
+                    .toList(),
+                onChanged: (value) => setState(
+                  () => selectedStatus = value ?? ItemStatus.inLocation,
+                ),
+              ),
+            ),
             const Divider(),
             Row(
               children: [
@@ -158,7 +175,10 @@ class _UpdateItemColumnState extends State<UpdateItemColumn> {
                     items: bins
                         .map((bin) => DropdownMenuItem<int>(
                               value: bin.id,
-                              child: BodyText(binDisplayPath(bin)),
+                              child: Text(
+                                binDisplayPath(bin),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ))
                         .toList(),
                     onChanged: (value) => setState(() => selectedBinId = value),
@@ -216,8 +236,12 @@ class _UpdateItemColumnState extends State<UpdateItemColumn> {
                       quantity: int.tryParse(quantityController.text) ?? 1,
                       description: safeString(descriptionController.text),
                       tags: selectedTags,
+                      status: selectedStatus,
                     );
-                    final response = await item.put();
+                    final response = await item.put(
+                      imageFile: selectedImage,
+                      removeImage: removeImage,
+                    );
                     if (!mounted) return;
                     setState(() => processing = false);
                     if (response?.status == SQLResponseStatusTypes.success) {

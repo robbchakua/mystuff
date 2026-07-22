@@ -22,7 +22,7 @@ class _SignUpOrLogInPageState extends State<SignUpOrLogInPage> {
   final _loginFormKey = GlobalKey<FormState>();
   final _signUpFormKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
-  final _generatedUsernameController = TextEditingController();
+  final _signUpEmailController = TextEditingController();
   final _loginPasswordController = TextEditingController();
   final _signUpPasswordController = TextEditingController();
 
@@ -31,36 +31,14 @@ class _SignUpOrLogInPageState extends State<SignUpOrLogInPage> {
   bool _acceptedPrivacyPolicy = false;
   bool _privacyPolicyError = false;
   bool _processing = false;
-  int _randomSuffix = Random().nextInt(1000);
 
   @override
   void dispose() {
     _nameController.dispose();
-    _generatedUsernameController.dispose();
+    _signUpEmailController.dispose();
     _loginPasswordController.dispose();
     _signUpPasswordController.dispose();
     super.dispose();
-  }
-
-  String _createUserId(String name) {
-    final normalized = name
-        .toLowerCase()
-        .removeAllWhitespace
-        .replaceAll(RegExp(r'[^a-z0-9._-]'), '');
-    return normalized.isEmpty ? 'user' : normalized;
-  }
-
-  void _updateGeneratedUsername() {
-    final name = _nameController.text.trim();
-    _generatedUsernameController.text =
-        name.isEmpty ? '' : '${_createUserId(name)}$_randomSuffix';
-  }
-
-  void _createNewRandomSuffix() {
-    setState(() {
-      _randomSuffix = Random().nextInt(1000);
-      _updateGeneratedUsername();
-    });
   }
 
   void _selectPage(bool showSignUp) {
@@ -109,9 +87,8 @@ class _SignUpOrLogInPageState extends State<SignUpOrLogInPage> {
       _processing = true;
     });
     final response = await User(
-      userid: _generatedUsernameController.text,
       name: _nameController.text.trim(),
-      email: 'NO-EMAIL',
+      email: _signUpEmailController.text.trim().toLowerCase(),
       password: _signUpPasswordController.text,
       joinDate: timeNow,
     ).post(false);
@@ -138,8 +115,7 @@ class _SignUpOrLogInPageState extends State<SignUpOrLogInPage> {
     setState(() => _processing = true);
     final authenticated = await User(
       name: '',
-      userid: usernameController.text.trim(),
-      email: usernameController.text.trim(),
+      email: emailController.text.trim().toLowerCase(),
       password: _loginPasswordController.text,
     ).validate();
     if (!mounted) return;
@@ -290,13 +266,13 @@ class _SignUpOrLogInPageState extends State<SignUpOrLogInPage> {
               LayoutBuilder(
                 builder: (context, constraints) {
                   final nameField = _nameField();
-                  final usernameField = _generatedUsernameField();
+                  final emailField = _signUpEmailField();
                   if (constraints.maxWidth < 480) {
                     return Column(
                       children: [
                         nameField,
                         const SizedBox(height: 16),
-                        usernameField,
+                        emailField,
                       ],
                     );
                   }
@@ -305,7 +281,7 @@ class _SignUpOrLogInPageState extends State<SignUpOrLogInPage> {
                     children: [
                       Expanded(child: nameField),
                       const SizedBox(width: 16),
-                      Expanded(child: usernameField),
+                      Expanded(child: emailField),
                     ],
                   );
                 },
@@ -355,21 +331,23 @@ class _SignUpOrLogInPageState extends State<SignUpOrLogInPage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               TextFormField(
-                controller: usernameController,
+                controller: emailController,
                 enabled: !_processing,
-                autofillHints: const [AutofillHints.username],
+                autofillHints: const [AutofillHints.email],
                 keyboardType: TextInputType.emailAddress,
                 textInputAction: TextInputAction.next,
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) {
-                    return 'Name/Email cannot be empty';
+                    return InputErrors.emptyEmail;
                   }
-                  if (userNotFound) return 'Name/Email does not exist';
+                  if (!InputErrors.emailChars.hasMatch(value.trim())) {
+                    return InputErrors.emailError;
+                  }
                   return null;
                 },
                 decoration: const InputDecoration(
-                  labelText: 'Name/Email',
-                  suffixIcon: Icon(Icons.person),
+                  labelText: 'Email',
+                  suffixIcon: Icon(Icons.email),
                 ),
               ),
               const SizedBox(height: 16),
@@ -380,7 +358,7 @@ class _SignUpOrLogInPageState extends State<SignUpOrLogInPage> {
               ),
               const SizedBox(height: 12),
               Text(
-                'Password recovery is coming later.',
+                'Forgotten password? Ask an administrator to reset it.',
                 style: TextStyle(color: middleGrey(context)),
               ),
               const SizedBox(height: 24),
@@ -396,7 +374,6 @@ class _SignUpOrLogInPageState extends State<SignUpOrLogInPage> {
         autofillHints: const [AutofillHints.name],
         keyboardType: TextInputType.name,
         textInputAction: TextInputAction.next,
-        onChanged: (_) => setState(_updateGeneratedUsername),
         validator: (value) {
           if (value == null || value.trim().isEmpty) {
             return InputErrors.emptyUsername;
@@ -410,18 +387,24 @@ class _SignUpOrLogInPageState extends State<SignUpOrLogInPage> {
         ),
       );
 
-  Widget _generatedUsernameField() => TextFormField(
-        controller: _generatedUsernameController,
-        readOnly: true,
-        enableInteractiveSelection: true,
-        decoration: InputDecoration(
-          labelText: 'Username',
-          hintText: 'Generated from your name',
-          suffixIcon: IconButton(
-            tooltip: 'Generate another username',
-            onPressed: _processing ? null : _createNewRandomSuffix,
-            icon: const Icon(Icons.refresh_outlined),
-          ),
+  Widget _signUpEmailField() => TextFormField(
+        controller: _signUpEmailController,
+        enabled: !_processing,
+        autofillHints: const [AutofillHints.email],
+        keyboardType: TextInputType.emailAddress,
+        textInputAction: TextInputAction.next,
+        validator: (value) {
+          if (value == null || value.trim().isEmpty) {
+            return InputErrors.emptyEmail;
+          }
+          if (!InputErrors.emailChars.hasMatch(value.trim())) {
+            return InputErrors.emailError;
+          }
+          return null;
+        },
+        decoration: const InputDecoration(
+          labelText: 'Email',
+          suffixIcon: Icon(Icons.email),
         ),
       );
 

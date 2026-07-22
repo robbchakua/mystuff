@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:dad_app/models/response_model.dart';
 import 'package:dad_app/pages/sign_up_or_log_in_page.dart';
@@ -83,9 +84,8 @@ class User {
       final formData = FormData.fromMap({
         'request': RequestType.postUser.toString(),
         'token': User.user.sessionToken,
-        'userid': userid,
         'name': name,
-        'email': email == 'NO-EMAIL' ? '' : email,
+        'email': email,
         'password': password,
         'role': role ?? 'observer',
       });
@@ -110,17 +110,21 @@ class User {
     }
   }
 
-  Future<SQLResponse?> put({String? newPassword}) async {
+  Future<SQLResponse?> put({
+    String? newPassword,
+    String? currentPassword,
+  }) async {
     try {
       final formData = FormData.fromMap({
         'request': RequestType.putUser.toString(),
         'token': User.user.sessionToken,
         'userId': id ?? User.user.id,
         'name': name,
-        'email': email == 'NO-EMAIL' ? '' : email,
+        'email': email,
         'role': role ?? User.user.role,
         'isActive': isActive ?? User.user.isActive,
         'newPassword': newPassword ?? '',
+        'currentPassword': currentPassword ?? '',
       });
       if (printInsteadOfPostBool) {
         myPrint('Update user: ${formData.fields.map((e) => e.key)}');
@@ -147,12 +151,11 @@ class User {
     try {
       final formData = FormData.fromMap({
         'request': RequestType.login.toString(),
-        'userid': userid ?? email,
         'email': email,
         'password': password,
       });
       if (printInsteadOfPostBool) {
-        myPrint('Login requested for $userid');
+        myPrint('Login requested for $email');
         return null;
       }
       return SQLResponse(await apiClient.post(Urls.userUrl, data: formData));
@@ -274,6 +277,25 @@ class User {
           'token': User.user.sessionToken,
         }),
       ));
+    } catch (error) {
+      myPrint(error);
+      return null;
+    }
+  }
+
+  static Future<Uint8List?> exportInventory() async {
+    try {
+      final response = await apiClient.post<List<int>>(
+        Urls.postUrl,
+        data: FormData.fromMap({
+          'request': RequestType.exportCsv.toString(),
+          'token': User.user.sessionToken,
+        }),
+        options: Options(responseType: ResponseType.bytes),
+      );
+      if (response.statusCode != 200) return null;
+      final bytes = response.data;
+      return bytes == null ? null : Uint8List.fromList(bytes);
     } catch (error) {
       myPrint(error);
       return null;

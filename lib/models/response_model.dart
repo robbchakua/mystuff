@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:dad_app/models/item_model.dart';
+import 'package:dad_app/models/item_history_model.dart';
 import 'package:dad_app/models/location_model.dart';
 import 'package:dad_app/models/user_model.dart';
 import 'package:dad_app/utils/constants.dart';
@@ -73,6 +74,9 @@ class SQLResponse {
   List<User> get users => _mapList(payload['users'], User.fromJson);
 
   List<Item> get items => _mapList(payload['items'], Item.fromJson);
+
+  List<ItemHistoryEntry> get history =>
+      _mapList(payload['history'], ItemHistoryEntry.fromJson);
 
   List<Location> get locations {
     final value = payload['bins'] ?? payload['locations'];

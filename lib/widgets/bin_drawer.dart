@@ -7,12 +7,13 @@ import 'package:dad_app/models/response_model.dart';
 import 'package:dad_app/models/user_model.dart';
 import 'package:dad_app/styles/themes.dart';
 import 'package:dad_app/utils/constants.dart';
+import 'package:dad_app/utils/item_status.dart';
 import 'package:dad_app/utils/utils.dart';
+import 'package:dad_app/widgets/optional_image_picker.dart';
 import 'package:dad_app/widgets/text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:image_picker/image_picker.dart';
 
 Future<bool> showCreateBinDialog(
   BuildContext context, {
@@ -79,16 +80,6 @@ class _CreateBinDialogState extends State<_CreateBinDialog> {
     if (result != null && mounted) setState(() => _color = result);
   }
 
-  Future<void> _takePicture() async {
-    final picture = await ImagePicker().pickImage(
-      source: ImageSource.camera,
-      imageQuality: 35,
-    );
-    if (picture != null && mounted) {
-      setState(() => _image = File(picture.path));
-    }
-  }
-
   Future<void> _save() async {
     if (_saving || !_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
@@ -152,21 +143,19 @@ class _CreateBinDialogState extends State<_CreateBinDialog> {
                   maxLines: 3,
                   decoration: const InputDecoration(labelText: 'Description'),
                 ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    TextButton.icon(
-                      onPressed: _saving ? null : _takePicture,
-                      icon: const Icon(Icons.camera_alt),
-                      label: BodyText(
-                          _image == null ? 'Bin picture' : 'Picture added'),
-                    ),
-                    FloatingActionButton.small(
-                      heroTag: 'create-bin-color',
-                      backgroundColor: _color,
-                      onPressed: _saving ? null : _pickColor,
-                    ),
-                  ],
+                const SizedBox(height: 12),
+                OptionalImagePicker(
+                  label: 'Bin picture (optional)',
+                  onChanged: (selection) =>
+                      _image = selection.removeExisting ? null : selection.file,
+                ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FloatingActionButton.small(
+                    heroTag: 'create-bin-color',
+                    backgroundColor: _color,
+                    onPressed: _saving ? null : _pickColor,
+                  ),
                 ),
               ],
             ),
@@ -260,14 +249,6 @@ class _BinDrawerState extends State<BinDrawer> {
     );
   }
 
-  Future<File?> _takeBinPicture() async {
-    final picture = await ImagePicker().pickImage(
-      source: ImageSource.camera,
-      imageQuality: 35,
-    );
-    return picture == null ? null : File(picture.path);
-  }
-
   Future<void> _createBin({int? initialParentId}) async {
     final created = await showCreateBinDialog(
       context,
@@ -303,6 +284,7 @@ class _BinDrawerState extends State<BinDrawer> {
     int? parentId = bin.parentId;
     Color color = stringToColor(bin.color ?? 'F44336');
     File? image;
+    bool removeImage = false;
     final excluded = _descendantIds(bin.id!);
     final parentChoices = editableBins()
         .where((candidate) => !excluded.contains(candidate.id))
@@ -350,31 +332,27 @@ class _BinDrawerState extends State<BinDrawer> {
                     maxLines: 3,
                     decoration: const InputDecoration(labelText: 'Description'),
                   ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      TextButton.icon(
-                        onPressed: () async {
-                          final picture = await _takeBinPicture();
-                          if (picture != null) {
-                            setDialogState(() => image = picture);
-                          }
-                        },
-                        icon: const Icon(Icons.camera_alt),
-                        label: BodyText(
-                            image == null ? 'Change picture' : 'Picture added'),
-                      ),
-                      FloatingActionButton.small(
-                        heroTag: 'edit-bin-color-${bin.id}',
-                        backgroundColor: color,
-                        onPressed: () async {
-                          final result = await _pickColor(color);
-                          if (result != null) {
-                            setDialogState(() => color = result);
-                          }
-                        },
-                      ),
-                    ],
+                  const SizedBox(height: 12),
+                  OptionalImagePicker(
+                    existingImage: bin.image,
+                    label: 'Bin picture (optional)',
+                    onChanged: (selection) {
+                      image = selection.file;
+                      removeImage = selection.removeExisting;
+                    },
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: FloatingActionButton.small(
+                      heroTag: 'edit-bin-color-${bin.id}',
+                      backgroundColor: color,
+                      onPressed: () async {
+                        final result = await _pickColor(color);
+                        if (result != null) {
+                          setDialogState(() => color = result);
+                        }
+                      },
+                    ),
                   ),
                 ],
               ),
@@ -395,7 +373,7 @@ class _BinDrawerState extends State<BinDrawer> {
                   description: description.trim(),
                   location: bin.location,
                   color: colorToString(color),
-                ).put(null, image);
+                ).put(null, image, removeImage);
                 if (response?.status == SQLResponseStatusTypes.success &&
                     dialogContext.mounted) {
                   Navigator.pop(dialogContext);
@@ -704,13 +682,16 @@ class _BinDrawerState extends State<BinDrawer> {
         color: primaryColor(context),
         child: ListTile(
           onTap: () => _moveMapToBin(getLocationFromId(item.binId)),
-          trailing: CachedNetworkImage(
-            height: 60,
-            width: 60,
-            fit: BoxFit.cover,
-            imageUrl: '${Urls.baseUrl}/${item.image}',
-            errorWidget: (_, __, ___) => const Icon(Icons.image_not_supported),
-          ),
+          trailing: item.image == null || item.image!.isEmpty
+              ? const Icon(Icons.image_not_supported_outlined)
+              : CachedNetworkImage(
+                  height: 60,
+                  width: 60,
+                  fit: BoxFit.cover,
+                  imageUrl: '${Urls.baseUrl}/${item.image}',
+                  errorWidget: (_, __, ___) =>
+                      const Icon(Icons.image_not_supported),
+                ),
           title: Text(item.name ?? '', overflow: TextOverflow.ellipsis),
           subtitle: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -721,6 +702,14 @@ class _BinDrawerState extends State<BinDrawer> {
                     : binDisplayPath(getLocationFromId(item.binId)!),
                 overflow: TextOverflow.ellipsis,
                 maxLines: 1,
+              ),
+              Text(
+                item.status.label,
+                style: TextStyle(
+                  color: item.status.color,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                ),
               ),
               if (item.tags.isNotEmpty)
                 Text(

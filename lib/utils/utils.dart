@@ -21,7 +21,6 @@ late SharedPreferences preferences;
 LatLng userLocation = const LatLng(0, 0);
 double userLocationAccuracy = 0;
 String firstName = '';
-bool hasEmailBool = false;
 bool transitionMap = false;
 bool darkModeMap = false;
 
@@ -32,7 +31,7 @@ bool processing = false;
 location_import.Location gvLocation = location_import.Location();
 bool isDarkTheme = true;
 bool listItems = false;
-TextEditingController usernameController = TextEditingController();
+TextEditingController emailController = TextEditingController();
 TextEditingController searchController = TextEditingController();
 PageController pageViewController = PageController(
   initialPage: 0,

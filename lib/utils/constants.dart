@@ -25,6 +25,8 @@ enum RequestType {
   postItem,
   putItem,
   dropItem,
+  getItemHistory,
+  exportCsv,
   emailCheck,
   postUser,
   putUser,

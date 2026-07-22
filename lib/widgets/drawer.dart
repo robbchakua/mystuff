@@ -27,26 +27,11 @@ class HomeDrawer extends StatefulWidget {
 }
 
 class _HomeDrawerState extends State<HomeDrawer> {
-  TextEditingController emailController = TextEditingController();
-  final formKey = GlobalKey<FormState>();
-
   @override
   void initState() {
     setState(() {});
     super.initState();
   }
-
-  Future emailInUseError() => showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-            title: const SubHeader('Error'),
-            content: SubHeader('${emailController.text}\nalready in use'),
-            actions: [
-              ElevatedButton(
-                  onPressed: () => {Navigator.pop(context)},
-                  child: const ButtonText('Okay'))
-            ],
-          ));
 
   Future logOutWarning() => showDialog(
       context: context,
@@ -137,67 +122,6 @@ class _HomeDrawerState extends State<HomeDrawer> {
       context: context,
       builder: (context) => const AlertDialog(content: NewUpdatePage()));
 
-  Future addEmail() => showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-            title: const Text('Add Email'),
-            content: Form(
-                key: formKey,
-                child: TextFormField(
-                  controller: emailController,
-                  validator: (val) {
-                    if (val!.isEmpty) {
-                      return InputErrors.emptyEmail;
-                    } else {
-                      if (!InputErrors.emailChars.hasMatch(val)) {
-                        return InputErrors.emailError;
-                      } else {
-                        return null;
-                      }
-                    }
-                  },
-                  keyboardType: TextInputType.emailAddress,
-                  textAlignVertical: TextAlignVertical.center,
-                  decoration:
-                      const InputDecoration(suffixIcon: Icon(Icons.email)),
-                )),
-            actions: [
-              ElevatedButton(
-                  onPressed: () async {
-                    if (formKey.currentState!.validate()) {
-                      User putUser = User(
-                          userid: User.user.userid!,
-                          name: User.user.name!,
-                          email: emailController.text,
-                          password: User.user.password);
-
-                      List? email = await putUser.verifyEmail();
-                      if (email != null) {
-                        bool emailExist = email[0];
-                        if (emailExist) {
-                          emailInUseError();
-                        } else if (!emailExist && email[1] == null) {
-                          SQLResponse? sqlPut = await putUser.put();
-                          myPrint(User.user);
-                          setState(() {});
-                          preferences.setString(
-                              'user', userToJson([User.user]));
-                          Navigator.pop(context);
-                        }
-                      }
-                    }
-                  },
-                  child: Text(
-                    'Add Email',
-                    style: TextStyle(color: inverseColor(context)),
-                  )),
-              ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text('Cancel',
-                      style: TextStyle(color: inverseColor(context)))),
-            ],
-          ));
-
   @override
   Widget build(BuildContext context) {
     return Drawer(
@@ -225,19 +149,19 @@ class _HomeDrawerState extends State<HomeDrawer> {
                       )),
                 ),
                 SubHeader(User.user.name!),
-                hasEmailBool
+                User.user.email != null && User.user.email != 'NO-EMAIL'
                     ? BodyText(User.user.email!)
                     : FloatingActionButton.extended(
                         onPressed: () {
-                          addEmail();
+                          Get.to(() => const ProfilePage());
                         },
-                        label: const ButtonText('Add Email'),
+                        label: const ButtonText('Add email in Profile'),
                         icon: const Icon(
                           Icons.warning,
                           color: Colors.yellow,
                         ),
                       ),
-                BodyText(User.user.userid!),
+                BodyText(User.user.role == 'admin' ? 'Admin' : 'Observer'),
                 Padding(
                     padding: EdgeInsets.symmetric(
                         vertical: screenHeight(context) / 500),

@@ -3,6 +3,44 @@ declare(strict_types=1);
 
 require_once __DIR__ . "/common.php";
 
+function validate_password(string $password): void
+{
+    if (
+        strlen($password) < 10 ||
+        strlen($password) > 200 ||
+        preg_match('/[A-Z]/', $password) !== 1 ||
+        preg_match('/[0-9]/', $password) !== 1 ||
+        preg_match('/[^a-zA-Z0-9]/', $password) !== 1
+    ) {
+        throw new InvalidArgumentException(
+            "Passwords need 10 characters, an uppercase letter, a number, and a symbol",
+        );
+    }
+}
+
+function userid_for_email(PDO $db, string $email): string
+{
+    $localPart = explode("@", $email, 2)[0];
+    $base = strtolower(
+        preg_replace('/[^a-z0-9._-]/i', "", $localPart) ?? "user",
+    );
+    $base = substr($base === "" ? "user" : $base, 0, 48);
+    if (strlen($base) < 3) {
+        $base .= "user";
+    }
+    $candidate = $base;
+    $suffix = 1;
+    $statement = $db->prepare("SELECT COUNT(*) FROM users WHERE userid = ?");
+    while (true) {
+        $statement->execute([$candidate]);
+        if ((int) $statement->fetchColumn() === 0) {
+            return $candidate;
+        }
+        $candidate = substr($base, 0, 52) . "-" . $suffix;
+        $suffix++;
+    }
+}
+
 try {
     $db = database();
     $request = request_name();
@@ -12,17 +50,19 @@ try {
     }
 
     if ($request === "login") {
-        $identifier = clean_text(input("userid", input("email", "")), 190);
+        $email = strtolower(clean_text(input("email"), 190));
+        if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            throw new InvalidArgumentException("Enter a valid email address");
+        }
         $password = (string) input("password", "");
         if ($password === "") {
             throw new InvalidArgumentException("Password is required");
         }
 
         $statement = $db->prepare(
-            "SELECT * FROM users " .
-                "WHERE (userid = ? OR email = ?) AND is_active = 1 LIMIT 1",
+            "SELECT * FROM users WHERE email = ? AND is_active = 1 LIMIT 1",
         );
-        $statement->execute([$identifier, strtolower($identifier)]);
+        $statement->execute([$email]);
         $user = $statement->fetch();
         if (
             !$user ||
@@ -30,7 +70,7 @@ try {
         ) {
             respond(
                 "unauthorized",
-                "Incorrect username, email, or password",
+                "Incorrect email or password",
                 [],
                 401,
             );
@@ -74,28 +114,14 @@ try {
             require_admin($actor);
         }
 
-        $userid = strtolower(clean_text(input("userid"), 60));
-        if (preg_match('/^[a-z0-9._-]{3,60}$/', $userid) !== 1) {
-            throw new InvalidArgumentException(
-                "Usernames need 3-60 letters, numbers, dots, dashes, or underscores",
-            );
-        }
         $name = clean_text(input("name"), 120);
-        $emailText = strtolower(clean_text(input("email", ""), 190, false));
-        $email =
-            $emailText === "" || $emailText === "no-email" ? null : $emailText;
-        if (
-            $email !== null &&
-            filter_var($email, FILTER_VALIDATE_EMAIL) === false
-        ) {
+        $email = strtolower(clean_text(input("email"), 190));
+        if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
             throw new InvalidArgumentException("The email address is invalid");
         }
+        $userid = userid_for_email($db, $email);
         $password = (string) input("password", "");
-        if (strlen($password) < 10 || strlen($password) > 200) {
-            throw new InvalidArgumentException(
-                "Passwords must contain at least 10 characters",
-            );
-        }
+        validate_password($password);
 
         $role = $count === 0 ? "admin" : (string) input("role", "observer");
         if (!in_array($role, ["admin", "observer"], true)) {
@@ -120,7 +146,7 @@ try {
             if ((string) $error->getCode() === "23000") {
                 respond(
                     "conflict",
-                    "That username or email is already in use",
+                    "That email address is already in use",
                     [],
                     409,
                 );
@@ -222,17 +248,16 @@ try {
         }
 
         $name = clean_text(input("name", $target["name"]), 120);
-        $emailText = strtolower(
-            clean_text(input("email", $target["email"] ?? ""), 190, false),
+        $email = strtolower(
+            clean_text(input("email", $target["email"] ?? ""), 190),
         );
-        $email =
-            $emailText === "" || $emailText === "no-email" ? null : $emailText;
-        if (
-            $email !== null &&
-            filter_var($email, FILTER_VALIDATE_EMAIL) === false
-        ) {
+        if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
             throw new InvalidArgumentException("The email address is invalid");
         }
+        $emailChanged = strcasecmp(
+            $email,
+            (string) ($target["email"] ?? ""),
+        ) !== 0;
 
         $role = (string) $target["role"];
         $isActive = (int) $target["is_active"];
@@ -258,13 +283,27 @@ try {
         }
 
         $password = (string) input("newPassword", "");
+        if ($password !== "") {
+            validate_password($password);
+        }
         if (
-            $password !== "" &&
-            (strlen($password) < 10 || strlen($password) > 200)
+            !$isAdminEditingAnotherUser &&
+            ($password !== "" || $emailChanged)
         ) {
-            throw new InvalidArgumentException(
-                "Passwords must contain at least 10 characters",
-            );
+            $currentPassword = (string) input("currentPassword", "");
+            if (
+                !password_verify(
+                    $currentPassword,
+                    (string) $actor["password_hash"],
+                )
+            ) {
+                respond(
+                    "unauthorized",
+                    "The current password is incorrect",
+                    [],
+                    401,
+                );
+            }
         }
 
         $db->beginTransaction();
@@ -282,6 +321,8 @@ try {
                     password_hash($password, PASSWORD_DEFAULT),
                     $targetId,
                 ]);
+            }
+            if ($password !== "" || $emailChanged) {
                 $db->prepare(
                     "UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = ? AND id <> ?",
                 )->execute([$targetId, (int) $actor["session_id"]]);
@@ -294,6 +335,17 @@ try {
             $db->commit();
         } catch (Throwable $error) {
             $db->rollBack();
+            if (
+                $error instanceof PDOException &&
+                (string) $error->getCode() === "23000"
+            ) {
+                respond(
+                    "conflict",
+                    "That email address is already in use",
+                    [],
+                    409,
+                );
+            }
             throw $error;
         }
 
