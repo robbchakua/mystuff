@@ -14,6 +14,183 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 
+Future<bool> showCreateBinDialog(
+  BuildContext context, {
+  required LatLng position,
+  int? initialParentId,
+}) async =>
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => _CreateBinDialog(
+        position: position,
+        initialParentId: initialParentId,
+      ),
+    ) ??
+    false;
+
+class _CreateBinDialog extends StatefulWidget {
+  final LatLng position;
+  final int? initialParentId;
+
+  const _CreateBinDialog({
+    required this.position,
+    this.initialParentId,
+  });
+
+  @override
+  State<_CreateBinDialog> createState() => _CreateBinDialogState();
+}
+
+class _CreateBinDialogState extends State<_CreateBinDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _name = TextEditingController();
+  final _description = TextEditingController();
+  late int? _parentId = widget.initialParentId;
+  Color _color = Colors.red;
+  File? _image;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _description.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickColor() async {
+    var selected = _color;
+    final result = await showDialog<Color>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Header('Pick a bin color'),
+        content: ColorPicker(
+          enableAlpha: false,
+          pickerColor: selected,
+          onColorChanged: (color) => selected = color,
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, selected),
+            child: const ButtonText('Choose color'),
+          ),
+        ],
+      ),
+    );
+    if (result != null && mounted) setState(() => _color = result);
+  }
+
+  Future<void> _takePicture() async {
+    final picture = await ImagePicker().pickImage(
+      source: ImageSource.camera,
+      imageQuality: 35,
+    );
+    if (picture != null && mounted) {
+      setState(() => _image = File(picture.path));
+    }
+  }
+
+  Future<void> _save() async {
+    if (_saving || !_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
+    final response = await Location(
+      parentId: _parentId,
+      name: _name.text.trim(),
+      description: _description.text.trim(),
+      color: colorToString(_color),
+      location: latLngToString(widget.position),
+    ).post(imageFile: _image);
+    if (!mounted) return;
+    if (response?.status == SQLResponseStatusTypes.success) {
+      Navigator.pop(context, true);
+    } else {
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: BodyText(response?.errorMessage ?? 'Could not create bin'),
+      ));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Header('New Bin'),
+        content: SingleChildScrollView(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: _name,
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? InputErrors.empty
+                      : null,
+                  decoration: const InputDecoration(labelText: 'Name'),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int>(
+                  value: _parentId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Parent bin'),
+                  hint: const BodyText('Top level'),
+                  validator: (value) => !User.user.isAdmin && value == null
+                      ? 'Observers must choose an editable parent bin'
+                      : null,
+                  items: editableBins()
+                      .map((bin) => DropdownMenuItem<int>(
+                            value: bin.id,
+                            child: BodyText(binDisplayPath(bin)),
+                          ))
+                      .toList(),
+                  onChanged: _saving
+                      ? null
+                      : (value) => setState(() => _parentId = value),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _description,
+                  minLines: 1,
+                  maxLines: 3,
+                  decoration: const InputDecoration(labelText: 'Description'),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton.icon(
+                      onPressed: _saving ? null : _takePicture,
+                      icon: const Icon(Icons.camera_alt),
+                      label: BodyText(
+                          _image == null ? 'Bin picture' : 'Picture added'),
+                    ),
+                    FloatingActionButton.small(
+                      heroTag: 'create-bin-color',
+                      backgroundColor: _color,
+                      onPressed: _saving ? null : _pickColor,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: _saving ? null : () => Navigator.pop(context, false),
+            child: const ButtonText('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: _saving ? null : _save,
+            child: _saving
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const ButtonText('Add'),
+          ),
+        ],
+      );
+}
+
 class BinDrawer extends StatefulWidget {
   final VoidCallback? onBinsChanged;
 
@@ -90,121 +267,14 @@ class _BinDrawerState extends State<BinDrawer> {
   }
 
   Future<void> _createBin({int? initialParentId}) async {
-    final formKey = GlobalKey<FormState>();
-    var name = '';
-    var description = '';
-    int? parentId = initialParentId;
-    Color color = Colors.red;
-    File? image;
-
-    var created = false;
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Header('New Bin'),
-          content: SingleChildScrollView(
-            child: Form(
-              key: formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextFormField(
-                    onChanged: (value) => name = value,
-                    validator: (value) => value == null || value.trim().isEmpty
-                        ? InputErrors.empty
-                        : null,
-                    decoration: const InputDecoration(labelText: 'Name'),
-                  ),
-                  DropdownButtonFormField<int>(
-                    value: parentId,
-                    isExpanded: true,
-                    decoration: const InputDecoration(labelText: 'Parent bin'),
-                    hint: const BodyText('Top level'),
-                    validator: (value) => !User.user.isAdmin && value == null
-                        ? 'Observers must choose an editable parent bin'
-                        : null,
-                    items: editableBins()
-                        .map((bin) => DropdownMenuItem<int>(
-                              value: bin.id,
-                              child: BodyText(binDisplayPath(bin)),
-                            ))
-                        .toList(),
-                    onChanged: (value) =>
-                        setDialogState(() => parentId = value),
-                  ),
-                  TextFormField(
-                    onChanged: (value) => description = value,
-                    minLines: 1,
-                    maxLines: 3,
-                    decoration: const InputDecoration(labelText: 'Description'),
-                  ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      TextButton.icon(
-                        onPressed: () async {
-                          final picture = await _takeBinPicture();
-                          if (picture != null) {
-                            setDialogState(() => image = picture);
-                          }
-                        },
-                        icon: const Icon(Icons.camera_alt),
-                        label: BodyText(
-                            image == null ? 'Bin picture' : 'Picture added'),
-                      ),
-                      FloatingActionButton.small(
-                        heroTag: 'drawer-new-bin-color',
-                        backgroundColor: color,
-                        onPressed: () async {
-                          final result = await _pickColor(color);
-                          if (result != null) {
-                            setDialogState(() => color = result);
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            ElevatedButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const ButtonText('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                if (!formKey.currentState!.validate()) return;
-                final response = await Location(
-                  parentId: parentId,
-                  name: name.trim(),
-                  description: description.trim(),
-                  color: colorToString(color),
-                  location: latLngToString(targetPosition),
-                ).post(imageFile: image);
-                if (response?.status == SQLResponseStatusTypes.success &&
-                    dialogContext.mounted) {
-                  created = true;
-                  Navigator.pop(dialogContext);
-                } else if (dialogContext.mounted) {
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(
-                    content: BodyText(
-                        response?.errorMessage ?? 'Could not create bin'),
-                  ));
-                }
-              },
-              child: const ButtonText('Add'),
-            ),
-          ],
-        ),
-      ),
+    final created = await showCreateBinDialog(
+      context,
+      position: targetPosition,
+      initialParentId: initialParentId,
     );
-    if (mounted) {
-      setState(_resetLists);
-      if (created) widget.onBinsChanged?.call();
-    }
+    if (!mounted) return;
+    setState(_resetLists);
+    if (created) widget.onBinsChanged?.call();
   }
 
   Set<int> _descendantIds(int rootId) {

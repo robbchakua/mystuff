@@ -14,8 +14,13 @@ import '../styles/google_maps_styles.dart';
 
 class ItemLocationScreen extends StatefulWidget {
   final bool withTarget;
+  final bool addBinMode;
 
-  const ItemLocationScreen({super.key, required this.withTarget});
+  const ItemLocationScreen({
+    super.key,
+    required this.withTarget,
+    this.addBinMode = false,
+  });
 
   @override
   State<ItemLocationScreen> createState() => _ItemLocationScreenState();
@@ -93,6 +98,14 @@ class _ItemLocationScreenState extends State<ItemLocationScreen> {
     } catch (error) {
       myPrint(error);
     }
+  }
+
+  Future<void> _addBinAtCrosshair() async {
+    final created = await showCreateBinDialog(
+      context,
+      position: targetPosition,
+    );
+    if (created && mounted) setState(() {});
   }
 
   @override
@@ -223,6 +236,23 @@ class _ItemLocationScreenState extends State<ItemLocationScreen> {
                   ],
                 ),
               ),
+              if (widget.addBinMode)
+                Align(
+                  alignment: Alignment.bottomLeft,
+                  child: Padding(
+                    padding: EdgeInsets.all(screenHeight(context) / 70),
+                    child: FloatingActionButton.extended(
+                      heroTag: 'add-bin-at-crosshair',
+                      onPressed: _addBinAtCrosshair,
+                      backgroundColor: Colors.green,
+                      icon: Icon(
+                        Icons.add_location_alt,
+                        color: inverseColor(context),
+                      ),
+                      label: const ButtonText('Add Bin Here'),
+                    ),
+                  ),
+                ),
               myPrintBool
                   ? Align(
                       alignment: Alignment.bottomLeft,

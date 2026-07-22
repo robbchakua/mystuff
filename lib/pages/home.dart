@@ -92,6 +92,50 @@ class _HomeState extends State<Home> {
     }
   }
 
+  Future<void> addBin() async {
+    if (networkError) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: BodyText('Network Error...')),
+      );
+      return;
+    }
+    if (!isLoaded) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: BodyText('Items still loading...')),
+      );
+      return;
+    }
+
+    setState(() => processing = true);
+    try {
+      if (userLocation == const LatLng(0, 0)) {
+        final locationData = await gvLocation.getLocation();
+        userLocation = LatLng(
+          locationData.latitude!,
+          locationData.longitude!,
+        );
+      }
+      targetPosition = userLocation;
+      listLocations = true;
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: BodyText('Could not get your location')),
+        );
+      }
+      return;
+    } finally {
+      if (mounted) setState(() => processing = false);
+    }
+
+    if (!mounted) return;
+    await Get.to(() => const ItemLocationScreen(
+          withTarget: false,
+          addBinMode: true,
+        ));
+    if (mounted) setState(() {});
+  }
+
   Future viewItem(
           {required int id,
           required int locationId,
@@ -705,6 +749,21 @@ class _HomeState extends State<Home> {
                                                 color: inverseColor(context)),
                                             label:
                                                 const ButtonText('Add Item')),
+                                        if (User.user.isAdmin ||
+                                            editableBins().isNotEmpty) ...[
+                                          SizedBox(
+                                            width: screenWidth(context) / 50,
+                                          ),
+                                          FloatingActionButton.extended(
+                                            onPressed: addBin,
+                                            heroTag: 'add-bin',
+                                            icon: Icon(
+                                              Icons.add_location_alt,
+                                              color: inverseColor(context),
+                                            ),
+                                            label: const ButtonText('Add Bin'),
+                                          ),
+                                        ],
                                         IconButton(
                                             onPressed: () {
                                               ScaffoldMessenger.of(context)
