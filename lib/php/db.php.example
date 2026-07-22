@@ -1,0 +1,13 @@
+<?php
+declare(strict_types=1);
+
+// Copy this file to db.php on the server. db.php is intentionally ignored by
+// Git. Prefer setting these values as server environment variables.
+return [
+    'host' => getenv('MYSTUFF_DB_HOST') ?: 'localhost',
+    'port' => (int) (getenv('MYSTUFF_DB_PORT') ?: 3306),
+    'database' => getenv('MYSTUFF_DB_NAME') ?: 'rusmark_mystuff',
+    'username' => getenv('MYSTUFF_DB_USER') ?: 'replace_me',
+    'password' => getenv('MYSTUFF_DB_PASSWORD') ?: 'replace_me',
+];
+

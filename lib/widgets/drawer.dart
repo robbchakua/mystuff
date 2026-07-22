@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dad_app/models/user_model.dart';
 import 'package:dad_app/pages/profile_page.dart';
+import 'package:dad_app/pages/team_page.dart';
 import 'package:dad_app/pages/settings/notifications_page.dart';
 import 'package:dad_app/pages/sign_up_or_log_in_page.dart';
 import 'package:dad_app/widgets/text.dart';
@@ -58,9 +59,8 @@ class _HomeDrawerState extends State<HomeDrawer> {
             actions: [
               ElevatedButton(
                 onPressed: () async {
-                  clearData();
+                  await User.user.logout();
                   Get.offAll(() => const SignUpOrLogInPage());
-                  preferences.remove('user');
                   preferences
                       .setStringList('settings', <String>['false', 'false']);
                 },
@@ -260,6 +260,25 @@ class _HomeDrawerState extends State<HomeDrawer> {
                     ],
                   ),
                 ),
+                if (User.user.isAdmin)
+                  ElevatedButton(
+                    onPressed: () {
+                      Get.to(() => const TeamPage());
+                    },
+                    style: ButtonStyle(
+                        shadowColor: MaterialStateProperty.all(Colors.white)),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      mainAxisSize: MainAxisSize.max,
+                      children: [
+                        const Icon(Icons.groups),
+                        Text('Team',
+                            style: TextStyle(
+                                color: inverseColor(context),
+                                fontWeight: FontWeight.w300))
+                      ],
+                    ),
+                  ),
                 ElevatedButton(
                   onPressed: () {
                     Get.to(() => const NotificationsPage());
@@ -694,13 +713,12 @@ class _LocationDrawerState extends State<LocationDrawer> {
                                   controller.animateCamera(CameraUpdate
                                       .newCameraPosition(CameraPosition(
                                           target: stringToLatLng(
-                                              locationsUpdatingList[
-                                                      getLocationIndexFromId(
-                                                          getLocationIdFromName(
-                                                              itemsUpdatingList[
-                                                                      index]
-                                                                  .location!))]
-                                                  .location!),
+                                              getLocationFromId(
+                                                          itemsUpdatingList[
+                                                                  index]
+                                                              .binId)
+                                                      ?.location ??
+                                                  ''),
                                           zoom: cameraZoom >= 14
                                               ? cameraZoom
                                               : 14)));

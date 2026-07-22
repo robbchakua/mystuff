@@ -1,4 +1,5 @@
 import 'package:dad_app/pages/sign_up_or_log_in_page.dart';
+import 'package:dad_app/models/response_model.dart';
 import 'package:dad_app/utils/utils.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -24,17 +25,25 @@ class _AuthenticationPageState extends State<AuthenticationPage> {
   Future userInit() async {
     preferences = await SharedPreferences.getInstance();
     if (resetUserDataBool) {
-      preferences.remove('user');
-      User.google.signOut();
+      await preferences.remove('user');
     }
     final storedUser = preferences.getString('user');
     if (storedUser != null) {
       try {
-        // Re-save legacy sessions without the old plain-text password field.
         final users = userFromJson(storedUser);
-        preferences.setString('user', userToJson(users));
+        if (users.isEmpty || users.first.sessionToken == null) {
+          await preferences.remove('user');
+        } else {
+          User.user = users.first;
+          final response = await User.user.validateSession();
+          if (response?.status != SQLResponseStatusTypes.success) {
+            await preferences.remove('user');
+            User.user = User();
+          }
+        }
       } catch (_) {
-        preferences.remove('user');
+        await preferences.remove('user');
+        User.user = User();
       }
     }
     if (preferences.getString('user') != null) {

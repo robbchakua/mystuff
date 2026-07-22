@@ -1,409 +1,543 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/db.php';
+require_once __DIR__ . "/common.php";
 
-header('Content-Type: text/plain; charset=utf-8');
-header('Cache-Control: no-store');
-
-mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
-
-function respond(
-    string $status,
-    string $error = 'null',
-    string $message = 'null',
-    string $user = 'null',
-    string $items = 'null',
-    string $locations = 'null'
-) {
-    echo implode(',,,', [
-        $status,
-        $error,
-        $message,
-        $user,
-        $items,
-        $locations,
-    ]);
-    exit;
-}
-
-function uploaded_image(): array {
-    if (!isset($_FILES['image'])
-        || $_FILES['image']['error'] !== UPLOAD_ERR_OK) {
-        throw new RuntimeException('A valid image upload is required');
-    }
-
-    if ($_FILES['image']['size'] > 8 * 1024 * 1024) {
-        throw new RuntimeException('The image is too large');
-    }
-
-    $mime = (new finfo(FILEINFO_MIME_TYPE))->file($_FILES['image']['tmp_name']);
-    $extensions = [
-        'image/jpeg' => 'jpg',
-        'image/png' => 'png',
-        'image/webp' => 'webp',
-    ];
-    if (!isset($extensions[$mime])) {
-        throw new RuntimeException('Unsupported image type');
-    }
-
-    $originalStem = pathinfo(
-        basename((string) $_FILES['image']['name']),
-        PATHINFO_FILENAME
+function parse_coordinates(): array
+{
+    $latitude = input("latitude");
+    $longitude = input("longitude");
+    $legacy = trim(
+        (string) input("location", input("newLocationCoordinates", "")),
     );
-    $safeStem = preg_replace('/[^A-Za-z0-9_-]/', '_', $originalStem);
-    $safeStem = trim((string) $safeStem, '_');
-    if ($safeStem === '') {
-        $safeStem = 'item';
+    if (
+        ($latitude === null || $longitude === null) &&
+        str_contains($legacy, ",")
+    ) {
+        [$latitude, $longitude] = array_pad(explode(",", $legacy, 2), 2, null);
     }
-
-    $directory = __DIR__ . '/images/items';
-    if (!is_dir($directory)
-        && !mkdir($directory, 0750, true)
-        && !is_dir($directory)) {
-        throw new RuntimeException('The image directory is unavailable');
+    if (
+        $latitude === null ||
+        $latitude === "" ||
+        $longitude === null ||
+        $longitude === ""
+    ) {
+        return [null, null];
     }
-
-    $filename = $safeStem . '.' . $extensions[$mime];
-    if (file_exists($directory . '/' . $filename)) {
-        $filename = $safeStem . '-' . bin2hex(random_bytes(6))
-            . '.' . $extensions[$mime];
+    if (!is_numeric($latitude) || !is_numeric($longitude)) {
+        throw new InvalidArgumentException("The bin coordinates are invalid");
     }
-
-    $absolutePath = $directory . '/' . $filename;
-    if (!move_uploaded_file($_FILES['image']['tmp_name'], $absolutePath)) {
-        throw new RuntimeException('The image could not be saved');
+    $latitude = (float) $latitude;
+    $longitude = (float) $longitude;
+    if (
+        $latitude < -90 ||
+        $latitude > 90 ||
+        $longitude < -180 ||
+        $longitude > 180
+    ) {
+        throw new InvalidArgumentException(
+            "The bin coordinates are outside the map",
+        );
     }
-
-    return ['images/items/' . $filename, $absolutePath];
+    return [$latitude, $longitude];
 }
 
-function remove_item_image(?string $relativePath): void {
-    if ($relativePath === null || $relativePath === '') {
-        return;
+function parse_color(mixed $value): string
+{
+    $color = strtoupper(ltrim(trim((string) $value), "#"));
+    if (preg_match('/^[0-9A-F]{6}$/', $color) !== 1) {
+        return "F44336";
     }
-
-    $imageDirectory = realpath(__DIR__ . '/images/items');
-    $candidate = realpath(__DIR__ . '/' . ltrim($relativePath, '/'));
-    if ($imageDirectory !== false
-        && $candidate !== false
-        && strpos($candidate, $imageDirectory . DIRECTORY_SEPARATOR) === 0
-        && is_file($candidate)) {
-        unlink($candidate);
-    }
+    return $color;
 }
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    respond('SQLResponseStatusTypes.codeError', 'POST required');
+function find_bin(array $bins, int $binId): ?array
+{
+    foreach ($bins as $bin) {
+        if ((int) $bin["id"] === $binId) {
+            return $bin;
+        }
+    }
+    return null;
 }
 
-$request = (string) ($_POST['request'] ?? '');
-$userid = trim((string) ($_POST['userid'] ?? ''));
-$id = (int) ($_POST['id'] ?? 0);
-$name = trim((string) ($_POST['name'] ?? ''));
-$storeDate = (string) ($_POST['storeDate'] ?? '');
-$location = trim((string) ($_POST['location'] ?? ''));
-$multiple = (string) ($_POST['multiple'] ?? 'false');
-$quantity = (int) ($_POST['quantity'] ?? 0);
-$description = trim((string) ($_POST['description'] ?? ''));
-$newLocation = filter_var(
-    $_POST['newLocation'] ?? false,
-    FILTER_VALIDATE_BOOLEAN
-);
-$newLocationColor = trim((string) ($_POST['newLocationColor'] ?? ''));
-$newLocationCoordinates = trim(
-    (string) ($_POST['newLocationCoordinates'] ?? '')
-);
-$oldName = trim((string) ($_POST['oldName'] ?? ''));
-$color = trim((string) ($_POST['color'] ?? ''));
+function bin_json(array $bin, string $permission, bool $admin): array
+{
+    $location = "";
+    if ($bin["latitude"] !== null && $bin["longitude"] !== null) {
+        $location =
+            rtrim(rtrim((string) $bin["latitude"], "0"), ".") .
+            "," .
+            rtrim(rtrim((string) $bin["longitude"], "0"), ".");
+    }
+    return [
+        "id" => (int) $bin["id"],
+        "userid" => $bin["creator_userid"] ?? null,
+        "parentId" =>
+            $bin["parent_id"] === null ? null : (int) $bin["parent_id"],
+        "name" => (string) $bin["name"],
+        "description" => $bin["description"] ?? "",
+        "location" => $location,
+        "latitude" =>
+            $bin["latitude"] === null ? null : (float) $bin["latitude"],
+        "longitude" =>
+            $bin["longitude"] === null ? null : (float) $bin["longitude"],
+        "color" => (string) $bin["color"],
+        "image" => $bin["image_path"],
+        "permission" => $permission,
+        "canEdit" => permission_rank($permission) >= permission_rank("edit"),
+        "canManageAccess" => $admin,
+    ];
+}
+
+function load_data(PDO $db, array $user): array
+{
+    $bins = $db
+        ->query(
+            "SELECT b.*, creator.userid AS creator_userid " .
+                "FROM bins b LEFT JOIN users creator ON creator.id = b.created_by " .
+                "ORDER BY b.parent_id, b.name, b.id",
+        )
+        ->fetchAll();
+    $permissions = effective_bin_permissions($db, $user, $bins);
+    $visibleBins = [];
+    foreach ($bins as $bin) {
+        $id = (int) $bin["id"];
+        if (isset($permissions[$id])) {
+            $visibleBins[] = bin_json(
+                $bin,
+                $permissions[$id],
+                ($user["role"] ?? "") === "admin",
+            );
+        }
+    }
+
+    $items = [];
+    $binIds = array_keys($permissions);
+    if ($binIds !== []) {
+        $statement = $db->prepare(
+            "SELECT i.*, b.name AS bin_name, creator.userid AS creator_userid " .
+                "FROM items i JOIN bins b ON b.id = i.bin_id " .
+                "LEFT JOIN users creator ON creator.id = i.created_by " .
+                "WHERE i.bin_id IN (" .
+                placeholders(count($binIds)) .
+                ") " .
+                "ORDER BY i.id",
+        );
+        $statement->execute($binIds);
+        foreach ($statement->fetchAll() as $item) {
+            $items[] = [
+                "id" => (int) $item["id"],
+                "userid" => $item["creator_userid"] ?? null,
+                "name" => (string) $item["name"],
+                "storeDate" => (string) $item["stored_at"],
+                "binId" => (int) $item["bin_id"],
+                "location" => (string) $item["bin_name"],
+                "image" => $item["image_path"],
+                "multiple" => (bool) $item["is_multiple"],
+                "quantity" => (int) $item["quantity"],
+                "description" => $item["description"] ?? "",
+                "canEdit" =>
+                    permission_rank($permissions[(int) $item["bin_id"]]) >=
+                    permission_rank("edit"),
+            ];
+        }
+    }
+    return [
+        "items" => $items,
+        "bins" => $visibleBins,
+        "locations" => $visibleBins,
+    ];
+}
 
 try {
-    $conn = new mysqli($servername, $username, $password, $dbname);
-    $conn->set_charset('utf8mb4');
+    $db = database();
+    $user = require_auth($db);
+    $request = request_name();
 
-    if ($request === 'GET' || $request === 'RequestType.get') {
-        $statement = $conn->prepare('SELECT * FROM items WHERE userid = ?');
-        $statement->bind_param('s', $userid);
-        $statement->execute();
-        $items = $statement->get_result()->fetch_all(MYSQLI_ASSOC);
-        $statement->close();
+    if ($request === "get") {
+        respond("success", "Data loaded", load_data($db, $user));
+    }
 
-        $statement = $conn->prepare(
-            'SELECT * FROM locations WHERE userid = ?'
+    if ($request === "postBin") {
+        $parentId = nullable_int(input("parentId"));
+        if ($parentId === null) {
+            require_admin($user);
+        } else {
+            require_bin_permission($db, $user, $parentId, "edit");
+        }
+        $name = clean_text(input("name"), 160);
+        $description = clean_text(input("description", ""), 10000, false);
+        [$latitude, $longitude] = parse_coordinates();
+        $color = parse_color(
+            input("color", input("newLocationColor", "F44336")),
         );
-        $statement->bind_param('s', $userid);
-        $statement->execute();
-        $locations = $statement->get_result()->fetch_all(MYSQLI_ASSOC);
-        $statement->close();
+        $image = uploaded_image("image", "bins", false);
 
+        $statement = $db->prepare(
+            "INSERT INTO bins " .
+                "(parent_id, created_by, name, description, image_path, latitude, longitude, color) " .
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        );
+        $statement->execute([
+            $parentId,
+            (int) $user["id"],
+            $name,
+            $description === "" ? null : $description,
+            $image,
+            $latitude,
+            $longitude,
+            $color,
+        ]);
         respond(
-            'SQLResponseStatusTypes.success',
-            'null',
-            'Data retrieval was successful',
-            'null',
-            json_encode($items, JSON_THROW_ON_ERROR),
-            json_encode($locations, JSON_THROW_ON_ERROR)
+            "success",
+            "Bin created",
+            array_merge(
+                ["binId" => (int) $db->lastInsertId()],
+                load_data($db, $user),
+            ),
+            201,
         );
     }
 
-    if ($request === 'POST-ITEM' || $request === 'RequestType.postItem') {
-        [$imagePath, $absoluteImagePath] = uploaded_image();
-        $conn->begin_transaction();
-        try {
-            $statement = $conn->prepare(
-                'INSERT INTO items '
-                . '(userid, name, storeDate, location, image, multiple, quantity, description) '
-                . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-            );
-            $statement->bind_param(
-                'ssssssis',
-                $userid,
-                $name,
-                $storeDate,
-                $location,
-                $imagePath,
-                $multiple,
-                $quantity,
-                $description
-            );
-            $statement->execute();
-            $statement->close();
+    if ($request === "putBin" || $request === "putLocation") {
+        $binId =
+            nullable_int(input("binId", input("id"))) ??
+            throw new InvalidArgumentException("Bin ID is required");
+        require_bin_permission($db, $user, $binId, "edit");
+        $bins = all_bins($db);
+        $current = find_bin($bins, $binId);
+        if ($current === null) {
+            respond("notFound", "Bin not found", [], 404);
+        }
 
-            if ($newLocation) {
-                $statement = $conn->prepare(
-                    'INSERT INTO locations (userid, name, location, color) '
-                    . 'VALUES (?, ?, ?, ?)'
+        $parentId = input("parentId", $current["parent_id"]);
+        $parentId = nullable_int($parentId);
+        if ($parentId === null && ($user["role"] ?? "") !== "admin") {
+            respond(
+                "forbidden",
+                "Only administrators can create top-level bins",
+                [],
+                403,
+            );
+        }
+        if ($parentId !== null) {
+            require_bin_permission($db, $user, $parentId, "edit");
+            if (in_array($parentId, descendant_ids($bins, $binId), true)) {
+                throw new InvalidArgumentException(
+                    "A bin cannot be moved inside itself",
                 );
-                $statement->bind_param(
-                    'ssss',
-                    $userid,
-                    $location,
-                    $newLocationCoordinates,
-                    $newLocationColor
+            }
+        }
+
+        $name = clean_text(input("name", $current["name"]), 160);
+        $description = clean_text(
+            input("description", $current["description"] ?? ""),
+            10000,
+            false,
+        );
+        [$latitude, $longitude] = parse_coordinates();
+        if (
+            input("latitude") === null &&
+            input("longitude") === null &&
+            trim((string) input("location", "")) === ""
+        ) {
+            $latitude = $current["latitude"];
+            $longitude = $current["longitude"];
+        }
+        $color = parse_color(input("color", $current["color"]));
+        $image = uploaded_image("image", "bins", false);
+        $newImagePath = $image ?? $current["image_path"];
+
+        $statement = $db->prepare(
+            "UPDATE bins SET parent_id = ?, name = ?, description = ?, image_path = ?, " .
+                "latitude = ?, longitude = ?, color = ? WHERE id = ?",
+        );
+        $statement->execute([
+            $parentId,
+            $name,
+            $description === "" ? null : $description,
+            $newImagePath,
+            $latitude,
+            $longitude,
+            $color,
+            $binId,
+        ]);
+        if ($image !== null) {
+            remove_image($current["image_path"]);
+        }
+        respond("success", "Bin updated", load_data($db, $user));
+    }
+
+    if (
+        in_array(
+            $request,
+            ["dropBin", "dropLocationWithAll", "dropLocationSetNew"],
+            true,
+        )
+    ) {
+        $binId =
+            nullable_int(input("binId", input("id"))) ??
+            throw new InvalidArgumentException("Bin ID is required");
+        require_bin_permission($db, $user, $binId, "edit");
+        $bins = all_bins($db);
+        $current = find_bin($bins, $binId);
+        if ($current === null) {
+            respond("notFound", "Bin not found", [], 404);
+        }
+        $deleteContents =
+            $request === "dropLocationWithAll" ||
+            boolean_input("deleteContents");
+        $replacementId = nullable_int(input("replacementBinId"));
+        $affectedIds = descendant_ids($bins, $binId);
+
+        if (!$deleteContents) {
+            if ($replacementId === null) {
+                throw new InvalidArgumentException(
+                    "Choose another bin before deleting this bin without its contents",
                 );
-                $statement->execute();
-                $statement->close();
             }
-            $conn->commit();
-        } catch (Throwable $error) {
-            $conn->rollback();
-            if (is_file($absoluteImagePath)) {
-                unlink($absoluteImagePath);
-            }
-            throw $error;
-        }
-
-        respond(
-            'SQLResponseStatusTypes.success',
-            'null',
-            'Item creation was successful'
-        );
-    }
-
-    if ($request === 'PUT-ITEM' || $request === 'RequestType.putItem') {
-        $statement = $conn->prepare(
-            'SELECT image FROM items WHERE id = ? AND userid = ? LIMIT 1'
-        );
-        $statement->bind_param('is', $id, $userid);
-        $statement->execute();
-        $oldItem = $statement->get_result()->fetch_assoc();
-        $statement->close();
-        if ($oldItem === null) {
-            respond('SQLResponseStatusTypes.codeError', 'Item not found');
-        }
-
-        [$imagePath, $absoluteImagePath] = uploaded_image();
-        $conn->begin_transaction();
-        try {
-            $statement = $conn->prepare(
-                'UPDATE items SET name = ?, location = ?, image = ?, '
-                . 'multiple = ?, quantity = ?, description = ? '
-                . 'WHERE id = ? AND userid = ?'
-            );
-            $statement->bind_param(
-                'ssssisis',
-                $name,
-                $location,
-                $imagePath,
-                $multiple,
-                $quantity,
-                $description,
-                $id,
-                $userid
-            );
-            $statement->execute();
-            $statement->close();
-
-            if ($newLocation) {
-                $statement = $conn->prepare(
-                    'INSERT INTO locations (userid, name, location, color) '
-                    . 'VALUES (?, ?, ?, ?)'
+            if (in_array($replacementId, $affectedIds, true)) {
+                throw new InvalidArgumentException(
+                    "The replacement cannot be inside the deleted bin",
                 );
-                $statement->bind_param(
-                    'ssss',
-                    $userid,
-                    $location,
-                    $newLocationCoordinates,
-                    $newLocationColor
-                );
-                $statement->execute();
-                $statement->close();
             }
-            $conn->commit();
-        } catch (Throwable $error) {
-            $conn->rollback();
-            if (is_file($absoluteImagePath)) {
-                unlink($absoluteImagePath);
+            require_bin_permission($db, $user, $replacementId, "edit");
+        }
+
+        $images = [];
+        $binImageQuery = $db->prepare(
+            "SELECT image_path FROM bins WHERE id IN (" .
+                placeholders(count($affectedIds)) .
+                ")",
+        );
+        $binImageQuery->execute($affectedIds);
+        $images = array_column($binImageQuery->fetchAll(), "image_path");
+        $itemImageQuery = $db->prepare(
+            "SELECT image_path FROM items WHERE bin_id IN (" .
+                placeholders(count($affectedIds)) .
+                ")",
+        );
+        $itemImageQuery->execute($affectedIds);
+        $itemImages = array_column($itemImageQuery->fetchAll(), "image_path");
+
+        $db->beginTransaction();
+        try {
+            if (!$deleteContents) {
+                $db->prepare(
+                    "UPDATE items SET bin_id = ? WHERE bin_id = ?",
+                )->execute([$replacementId, $binId]);
+                $db->prepare(
+                    "UPDATE bins SET parent_id = ? WHERE parent_id = ?",
+                )->execute([$replacementId, $binId]);
+                $db->prepare("DELETE FROM bins WHERE id = ?")->execute([
+                    $binId,
+                ]);
+            } else {
+                // Delete deepest children first instead of relying on MySQL's
+                // finite self-referential cascade depth.
+                foreach (array_reverse($affectedIds) as $affectedId) {
+                    $db->prepare("DELETE FROM bins WHERE id = ?")->execute([
+                        $affectedId,
+                    ]);
+                }
             }
-            throw $error;
-        }
-
-        remove_item_image(is_array($oldItem) ? ($oldItem['image'] ?? null) : null);
-        respond(
-            'SQLResponseStatusTypes.success',
-            'null',
-            'Item update was successful'
-        );
-    }
-
-    if ($request === 'DROP-ITEM' || $request === 'RequestType.dropItem') {
-        $statement = $conn->prepare(
-            'SELECT image FROM items WHERE id = ? AND userid = ? LIMIT 1'
-        );
-        $statement->bind_param('is', $id, $userid);
-        $statement->execute();
-        $oldItem = $statement->get_result()->fetch_assoc();
-        $statement->close();
-
-        $statement = $conn->prepare(
-            'DELETE FROM items WHERE id = ? AND userid = ?'
-        );
-        $statement->bind_param('is', $id, $userid);
-        $statement->execute();
-        $statement->close();
-        remove_item_image(is_array($oldItem) ? ($oldItem['image'] ?? null) : null);
-        respond(
-            'SQLResponseStatusTypes.success',
-            'null',
-            'Item deletion was successful'
-        );
-    }
-
-    if ($request === 'PUT-LOCATION'
-        || $request === 'RequestType.putLocation') {
-        $conn->begin_transaction();
-        try {
-            $statement = $conn->prepare(
-                'UPDATE locations SET name = ?, color = ? '
-                . 'WHERE id = ? AND userid = ?'
-            );
-            $statement->bind_param('ssis', $name, $color, $id, $userid);
-            $statement->execute();
-            $statement->close();
-
-            $statement = $conn->prepare(
-                'UPDATE items SET location = ? '
-                . 'WHERE location = ? AND userid = ?'
-            );
-            $statement->bind_param('sss', $name, $oldName, $userid);
-            $statement->execute();
-            $statement->close();
-            $conn->commit();
+            $db->commit();
         } catch (Throwable $error) {
-            $conn->rollback();
+            $db->rollBack();
             throw $error;
         }
-        respond(
-            'SQLResponseStatusTypes.success',
-            'null',
-            'Location update was successful'
-        );
-    }
 
-    if ($request === 'DROP-LOCATION-NEW'
-        || $request === 'RequestType.dropLocationSetNew') {
-        $conn->begin_transaction();
-        try {
-            $statement = $conn->prepare(
-                'DELETE FROM locations WHERE id = ? AND userid = ?'
-            );
-            $statement->bind_param('is', $id, $userid);
-            $statement->execute();
-            $statement->close();
-
-            $statement = $conn->prepare(
-                'UPDATE items SET location = ? '
-                . 'WHERE location = ? AND userid = ?'
-            );
-            $statement->bind_param('sss', $name, $oldName, $userid);
-            $statement->execute();
-            $statement->close();
-
-            $statement = $conn->prepare(
-                'INSERT INTO locations (userid, name, location, color) '
-                . 'VALUES (?, ?, ?, ?)'
-            );
-            $statement->bind_param(
-                'ssss',
-                $userid,
-                $name,
-                $location,
-                $color
-            );
-            $statement->execute();
-            $statement->close();
-            $conn->commit();
-        } catch (Throwable $error) {
-            $conn->rollback();
-            throw $error;
+        if ($deleteContents) {
+            foreach (array_merge($images, $itemImages) as $path) {
+                remove_image($path);
+            }
+        } else {
+            remove_image($current["image_path"]);
         }
-        respond(
-            'SQLResponseStatusTypes.success',
-            'null',
-            'Location replacement was successful'
-        );
+        respond("success", "Bin deleted", load_data($db, $user));
     }
 
-    if ($request === 'DROP-LOCATION-ALL'
-        || $request === 'RequestType.dropLocationWithAll') {
-        $conn->begin_transaction();
-        try {
-            $statement = $conn->prepare(
-                'DELETE FROM locations WHERE id = ? AND userid = ?'
+    if ($request === "postItem") {
+        $binId =
+            nullable_int(input("binId")) ??
+            throw new InvalidArgumentException(
+                "Every item must be assigned to a bin",
             );
-            $statement->bind_param('is', $id, $userid);
-            $statement->execute();
-            $statement->close();
-
-            $statement = $conn->prepare(
-                'DELETE FROM items WHERE location = ? AND userid = ?'
-            );
-            $statement->bind_param('ss', $name, $userid);
-            $statement->execute();
-            $statement->close();
-            $conn->commit();
-        } catch (Throwable $error) {
-            $conn->rollback();
-            throw $error;
+        require_bin_permission($db, $user, $binId, "edit");
+        $name = clean_text(input("name"), 180);
+        $storedAt = (string) input("storeDate", date("Y-m-d"));
+        $date = DateTimeImmutable::createFromFormat("Y-m-d", $storedAt);
+        if (!$date || $date->format("Y-m-d") !== $storedAt) {
+            throw new InvalidArgumentException("The stored date is invalid");
         }
-        respond(
-            'SQLResponseStatusTypes.success',
-            'null',
-            'Location deletion was successful'
+        $multiple = boolean_input("multiple");
+        $quantity = max(1, (int) input("quantity", 1));
+        $description = clean_text(input("description", ""), 10000, false);
+        $image = uploaded_image("image", "items", true);
+
+        $statement = $db->prepare(
+            "INSERT INTO items " .
+                "(bin_id, created_by, name, stored_at, image_path, is_multiple, quantity, description) " .
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         );
+        $statement->execute([
+            $binId,
+            (int) $user["id"],
+            $name,
+            $storedAt,
+            $image,
+            $multiple ? 1 : 0,
+            $multiple ? $quantity : 1,
+            $description === "" ? null : $description,
+        ]);
+        respond("success", "Item created", load_data($db, $user), 201);
     }
 
-    respond('SQLResponseStatusTypes.codeError', 'Unknown request type');
-} catch (mysqli_sql_exception $error) {
-    error_log('MyStuff data API database error: ' . $error->getMessage());
-    respond(
-        'SQLResponseStatusTypes.sql',
-        'The database request could not be completed'
-    );
+    if ($request === "putItem") {
+        $itemId =
+            nullable_int(input("id")) ??
+            throw new InvalidArgumentException("Item ID is required");
+        $itemStatement = $db->prepare(
+            "SELECT * FROM items WHERE id = ? LIMIT 1",
+        );
+        $itemStatement->execute([$itemId]);
+        $item = $itemStatement->fetch();
+        if (!$item) {
+            respond("notFound", "Item not found", [], 404);
+        }
+        require_bin_permission($db, $user, (int) $item["bin_id"], "edit");
+        $binId =
+            nullable_int(input("binId", $item["bin_id"])) ??
+            throw new InvalidArgumentException(
+                "Every item must be assigned to a bin",
+            );
+        require_bin_permission($db, $user, $binId, "edit");
+
+        $name = clean_text(input("name", $item["name"]), 180);
+        $multiple = boolean_input("multiple", (bool) $item["is_multiple"]);
+        $quantity = max(1, (int) input("quantity", $item["quantity"]));
+        $description = clean_text(
+            input("description", $item["description"] ?? ""),
+            10000,
+            false,
+        );
+        $image = uploaded_image("image", "items", false);
+        $newImagePath = $image ?? $item["image_path"];
+
+        $statement = $db->prepare(
+            "UPDATE items SET bin_id = ?, name = ?, image_path = ?, " .
+                "is_multiple = ?, quantity = ?, description = ? WHERE id = ?",
+        );
+        $statement->execute([
+            $binId,
+            $name,
+            $newImagePath,
+            $multiple ? 1 : 0,
+            $multiple ? $quantity : 1,
+            $description === "" ? null : $description,
+            $itemId,
+        ]);
+        if ($image !== null) {
+            remove_image($item["image_path"]);
+        }
+        respond("success", "Item updated", load_data($db, $user));
+    }
+
+    if ($request === "dropItem") {
+        $itemId =
+            nullable_int(input("id")) ??
+            throw new InvalidArgumentException("Item ID is required");
+        $statement = $db->prepare("SELECT * FROM items WHERE id = ? LIMIT 1");
+        $statement->execute([$itemId]);
+        $item = $statement->fetch();
+        if (!$item) {
+            respond("notFound", "Item not found", [], 404);
+        }
+        require_bin_permission($db, $user, (int) $item["bin_id"], "edit");
+        $db->prepare("DELETE FROM items WHERE id = ?")->execute([$itemId]);
+        remove_image($item["image_path"]);
+        respond("success", "Item deleted", load_data($db, $user));
+    }
+
+    if ($request === "getBinAccess") {
+        require_admin($user);
+        $binId =
+            nullable_int(input("binId")) ??
+            throw new InvalidArgumentException("Bin ID is required");
+        $users = $db
+            ->query(
+                "SELECT * FROM users WHERE is_active = 1 ORDER BY role, name, id",
+            )
+            ->fetchAll();
+        $statement = $db->prepare(
+            "SELECT bp.bin_id, bp.user_id, bp.permission, u.userid, u.name " .
+                "FROM bin_permissions bp JOIN users u ON u.id = bp.user_id " .
+                "WHERE bp.bin_id = ? ORDER BY u.name",
+        );
+        $statement->execute([$binId]);
+        respond("success", "Bin access loaded", [
+            "users" => array_map("public_user", $users),
+            "permissions" => $statement->fetchAll(),
+        ]);
+    }
+
+    if ($request === "grantBinAccess") {
+        require_admin($user);
+        $binId =
+            nullable_int(input("binId")) ??
+            throw new InvalidArgumentException("Bin ID is required");
+        $targetUserId =
+            nullable_int(input("userId")) ??
+            throw new InvalidArgumentException("Team member ID is required");
+        $permission = (string) input("permission", "view");
+        if (!in_array($permission, ["view", "edit"], true)) {
+            throw new InvalidArgumentException(
+                "The selected permission is invalid",
+            );
+        }
+        if (find_bin(all_bins($db), $binId) === null) {
+            respond("notFound", "Bin not found", [], 404);
+        }
+        $target = $db->prepare(
+            "SELECT id FROM users WHERE id = ? AND is_active = 1",
+        );
+        $target->execute([$targetUserId]);
+        if (!$target->fetch()) {
+            respond("notFound", "Team member not found", [], 404);
+        }
+
+        $statement = $db->prepare(
+            "INSERT INTO bin_permissions (bin_id, user_id, permission, granted_by) " .
+                "VALUES (?, ?, ?, ?) " .
+                "ON DUPLICATE KEY UPDATE permission = VALUES(permission), " .
+                "granted_by = VALUES(granted_by), updated_at = CURRENT_TIMESTAMP",
+        );
+        $statement->execute([
+            $binId,
+            $targetUserId,
+            $permission,
+            (int) $user["id"],
+        ]);
+        respond("success", "Bin access updated");
+    }
+
+    if ($request === "revokeBinAccess") {
+        require_admin($user);
+        $binId =
+            nullable_int(input("binId")) ??
+            throw new InvalidArgumentException("Bin ID is required");
+        $targetUserId =
+            nullable_int(input("userId")) ??
+            throw new InvalidArgumentException("Team member ID is required");
+        $statement = $db->prepare(
+            "DELETE FROM bin_permissions WHERE bin_id = ? AND user_id = ?",
+        );
+        $statement->execute([$binId, $targetUserId]);
+        respond("success", "Bin access removed");
+    }
+
+    respond("invalid", "Unknown data request", [], 400);
 } catch (Throwable $error) {
-    error_log('MyStuff data API error: ' . $error->getMessage());
-    respond(
-        'SQLResponseStatusTypes.codeError',
-        'The request could not be completed'
-    );
+    handle_api_error($error);
 }

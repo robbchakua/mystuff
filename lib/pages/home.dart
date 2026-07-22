@@ -66,6 +66,15 @@ class _HomeState extends State<Home> {
           ));
 
   void addItem() async {
+    if (editableBins().isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content:
+              BodyText('Create a bin first, or ask an admin for edit access.'),
+        ));
+      }
+      return;
+    }
     ImagePicker imagePicker = ImagePicker();
     XFile? compressedImage = await imagePicker.pickImage(
         source: ImageSource.camera, imageQuality: 15);
@@ -76,42 +85,6 @@ class _HomeState extends State<Home> {
         noItems = false;
         file = File(compressedImage.path);
       });
-      setState(() {
-        locationsCloseToUserList = [];
-        locationCloseToUser = false;
-      });
-      for (var i = 0; i < locationsJsonList.length; i++) {
-        double lat = userLocation.latitude;
-        double lng = userLocation.longitude;
-
-        double lowerBoundLat =
-            stringToLatLng(locationsJsonList[i].location!).latitude -
-                fiftyMeters;
-        double upperBoundLat =
-            stringToLatLng(locationsJsonList[i].location!).latitude +
-                fiftyMeters;
-        double lowerBoundLng =
-            stringToLatLng(locationsJsonList[i].location!).longitude -
-                fiftyMeters;
-        double upperBoundLng =
-            stringToLatLng(locationsJsonList[i].location!).longitude +
-                fiftyMeters;
-
-        if (lowerBoundLat <= lat &&
-            lat <= upperBoundLat &&
-            lowerBoundLng <= lng &&
-            lng <= upperBoundLng) {
-          locationsCloseToUserList.add(locationsJsonList[i].name!);
-          setState(() {
-            locationCloseToUser = true;
-          });
-        }
-      }
-      if (locationsCloseToUserList.isEmpty) {
-        setState(() {
-          locationCloseToUser = false;
-        });
-      }
       await addItemPage();
       setState(() {
         processing = false;
@@ -325,6 +298,9 @@ class _HomeState extends State<Home> {
     SQLResponse? sqlResponse = await get(); //Get from db
     if (sqlResponse?.status == SQLResponseStatusTypes.success) {
       myPrint(sqlResponse?.toString(extended: false));
+      getMarkers();
+      resetItemList();
+      resetLocationList();
       //If there's new user or no items found
       if (itemsJsonList.isEmpty) {
         setState(() {
@@ -332,9 +308,6 @@ class _HomeState extends State<Home> {
           isLoaded = true;
         });
       } else {
-        getMarkers();
-        resetItemList();
-        resetLocationList();
         setState(() {
           noItems = false;
           isLoaded = true;
@@ -387,14 +360,12 @@ class _HomeState extends State<Home> {
     LatLng locationInstance = userLocation;
     List<LocationDistance> locationDistances = [];
     for (var i in itemsUpdatingList) {
-      double latitude = stringToLatLng(locationsJsonList[
-                  getLocationIndexFromId(getLocationIdFromName(i.location!))]
-              .location!)
-          .latitude;
-      double longitude = stringToLatLng(locationsJsonList[
-                  getLocationIndexFromId(getLocationIdFromName(i.location!))]
-              .location!)
-          .longitude;
+      final bin = getLocationFromId(i.binId);
+      if (bin == null || !(bin.location?.contains(',') ?? false)) {
+        continue;
+      }
+      double latitude = stringToLatLng(bin.location!).latitude;
+      double longitude = stringToLatLng(bin.location!).longitude;
 
       double userLatitude = locationInstance.latitude;
       double userLongitude = locationInstance.longitude;
@@ -799,7 +770,7 @@ class _HomeState extends State<Home> {
                                         }
                                       },
                                       heroTag: 'view-locations',
-                                      label: const ButtonText('View Locations'),
+                                      label: const ButtonText('View Bins'),
                                       icon: Icon(
                                         Icons.location_on,
                                         color: inverseColor(context),
@@ -874,10 +845,11 @@ class _HomeState extends State<Home> {
                                                               id: itemsUpdatingList[
                                                                       index]
                                                                   .id!,
-                                                              locationId: getLocationIdFromName(
+                                                              locationId:
                                                                   itemsUpdatingList[
-                                                                          index]
-                                                                      .location!),
+                                                                              index]
+                                                                          .binId ??
+                                                                      0,
                                                               name:
                                                                   itemsUpdatingList[
                                                                           index]
@@ -967,9 +939,12 @@ class _HomeState extends State<Home> {
                                                             children: [
                                                               Expanded(
                                                                 child: Text(
-                                                                    itemsUpdatingList[
-                                                                            index]
-                                                                        .location!,
+                                                                    getLocationFromId(itemsUpdatingList[index].binId) ==
+                                                                            null
+                                                                        ? itemsUpdatingList[index]
+                                                                            .location!
+                                                                        : binDisplayPath(getLocationFromId(itemsUpdatingList[index]
+                                                                            .binId)!),
                                                                     overflow:
                                                                         TextOverflow
                                                                             .ellipsis,

@@ -9,7 +9,6 @@ class AppDetails {
 
 final double fiftyMeters = 4.50968209 * (pow(10, -4).toDouble());
 const double showMarkersRadius = 13.4448358386;
-const String gAccount = 'GACCOUNT';
 
 class Urls {
   static String baseUrl = "https://rusmark.io.ke";
@@ -21,17 +20,22 @@ class Urls {
 enum RequestType {
   get,
   login,
+  session,
+  logout,
   postItem,
   putItem,
   dropItem,
   emailCheck,
   postUser,
-  @Deprecated('Not fully in use')
   putUser,
   dropUser,
-  putLocation,
-  dropLocationWithAll,
-  dropLocationSetNew,
+  listUsers,
+  postBin,
+  putBin,
+  dropBin,
+  getBinAccess,
+  grantBinAccess,
+  revokeBinAccess,
 }
 
 class InputErrors {
@@ -40,7 +44,7 @@ class InputErrors {
   static RegExp uppercaseChars = RegExp(r'^(?=.*?[A-Z])');
   static RegExp numberChars = RegExp(r'^(?=.*?[0-9])');
   static RegExp specialChars = RegExp(r'^(?=.*?[!@#\$&*~])');
-  static String shortPassword = 'Password length is too short (min. 8)';
+  static String shortPassword = 'Password length is too short (min. 10)';
   static String empty = 'This field cannot be empty';
   static String emailError = 'Not a valid Email';
   static String longName = 'Password length is too long (max 20)';

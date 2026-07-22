@@ -24,7 +24,7 @@ void getMarkers() async {
               listItems = true;
               itemsUpdatingList = [];
               for (var o = 0; o < itemsJsonList.length; o++) {
-                if (itemsJsonList[o].location == locationsJsonList[i].name) {
+                if (itemsJsonList[o].binId == locationsJsonList[i].id) {
                   itemsUpdatingList.add(itemsJsonList[o]);
                 }
                 itemsUpdatingListLength = itemsUpdatingList.length;
@@ -52,7 +52,6 @@ void clearData() {
   usernameController.text = '';
   markers = {};
   networkError = false;
-  User.google.signOut();
 }
 
 void resetLocationList() {

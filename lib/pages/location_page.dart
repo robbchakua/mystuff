@@ -5,7 +5,7 @@ import 'package:dad_app/utils/constants.dart';
 import 'package:dad_app/utils/init.dart';
 import 'package:dad_app/styles/themes.dart';
 import 'package:dad_app/utils/utils.dart';
-import 'package:dad_app/widgets/drawer.dart';
+import 'package:dad_app/widgets/bin_drawer.dart';
 import 'package:dad_app/widgets/text.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -106,7 +106,7 @@ class _ItemLocationScreenState extends State<ItemLocationScreen> {
 
     return Scaffold(
       key: locationScaffoldKey,
-      drawer: const LocationDrawer(),
+      drawer: const BinDrawer(),
       appBar: AppBar(
         centerTitle: true,
         title: const SubHeader('View'),
@@ -249,7 +249,7 @@ class _ItemLocationScreenState extends State<ItemLocationScreen> {
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
                           CircularProgressIndicator(),
-                          SubHeader('Deleting Location...')
+                          SubHeader('Deleting Bin...')
                         ],
                       ))
                   : const Row()

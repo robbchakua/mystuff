@@ -1,303 +1,307 @@
 import 'dart:convert';
-import 'dart:math';
 
 import 'package:dad_app/models/response_model.dart';
+import 'package:dad_app/pages/sign_up_or_log_in_page.dart';
+import 'package:dad_app/utils/constants.dart';
+import 'package:dad_app/utils/api.dart';
+import 'package:dad_app/utils/init.dart';
+import 'package:dad_app/utils/utils.dart';
 import 'package:dio/dio.dart';
 import 'package:get/get.dart' hide FormData;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:location/location.dart';
 
-import '../pages/sign_up_or_log_in_page.dart';
-import '../utils/constants.dart';
-import '../utils/init.dart';
-import '../utils/utils.dart';
-
-List<User> userFromJson(String str) =>
-    List<User>.from(json.decode(str).map((x) => User.fromJson(x)));
+List<User> userFromJson(String str) => List<User>.from(
+    (json.decode(str) as List).map((value) => User.fromJson(value)));
 
 String userToJson(List<User> data) =>
-    json.encode(List<dynamic>.from(data.map((x) => x.toJson())));
+    json.encode(data.map((user) => user.toJson()).toList());
 
 class User {
+  int? id;
   String? userid;
   String? name;
   String? email;
   String? password;
+  String? role;
+  String? sessionToken;
+  bool? isActive;
   DateTime? joinDate;
 
   User({
+    this.id,
     this.userid,
     this.name,
     this.email,
     this.password,
+    this.role,
+    this.sessionToken,
+    this.isActive,
     this.joinDate,
   });
 
   static User user = User();
 
+  bool get isAdmin => role == 'admin';
+
   factory User.fromJson(Map<String, dynamic> json) => User(
-        userid: json["userid"],
-        name: json["name"],
-        email: json["email"],
-        // Passwords are never expected in server responses or local sessions.
+        id: _asInt(json['id']),
+        userid: json['userid']?.toString(),
+        name: json['name']?.toString(),
+        email: json['email']?.toString() ?? 'NO-EMAIL',
         password: null,
-        joinDate: DateTime.parse(json["joinDate"]),
+        role: json['role']?.toString() ?? 'observer',
+        sessionToken: json['sessionToken']?.toString(),
+        isActive: _asBool(json['isActive'], fallback: true),
+        joinDate: DateTime.tryParse(json['joinDate']?.toString() ?? ''),
       );
 
   Map<String, dynamic> toJson() => {
-        "userid": userid,
-        "name": name,
-        "email": email,
-        "joinDate":
-            "${joinDate?.year.toString().padLeft(4, '0')}-${joinDate?.month.toString().padLeft(2, '0')}-${joinDate?.day.toString().padLeft(2, '0')}",
+        'id': id,
+        'userid': userid,
+        'name': name,
+        'email': email,
+        'role': role,
+        'sessionToken': sessionToken,
+        'isActive': isActive,
+        'joinDate': joinDate == null
+            ? null
+            : '${joinDate!.year.toString().padLeft(4, '0')}-'
+                '${joinDate!.month.toString().padLeft(2, '0')}-'
+                '${joinDate!.day.toString().padLeft(2, '0')}',
       };
 
   @override
   String toString() =>
-      "User(UserId: $userid, Name: $name, Email: $email, Password: [redacted], "
-      "JoinDate: ${joinDate?.year.toString().padLeft(4, '0')}-${joinDate?.month.toString().padLeft(2, '0')}-${joinDate?.day.toString().padLeft(2, '0')})";
+      'User(UserId: $userid, Name: $name, Email: $email, Role: $role, '
+      'Password: [redacted], Session: [redacted])';
 
-  ///Posts new user. If user is gAccount, no parameters are needed. As long as
-  ///The [getGoogleAccount] was called prior to the function.
-  ///Call [setState] after function
-  Future<SQLResponse?> post(bool isGAccount) async {
-    //Check if there is internet connection
+  /// Creates the first administrator, or a team member when called by an
+  /// already authenticated administrator.
+  Future<SQLResponse?> post([bool unusedGoogleFlag = false]) async {
     try {
-      String gAccountUserid =
-          "${google.currentUser?.displayName?.toLowerCase().removeAllWhitespace}${Random().nextInt(1000)}";
-      //Creates new user json
-      var formData = FormData.fromMap({
+      final formData = FormData.fromMap({
         'request': RequestType.postUser.toString(),
-        'userid': isGAccount ? gAccountUserid : userid,
-        'name': isGAccount ? google.currentUser?.displayName : name,
-        'email': isGAccount ? google.currentUser?.email : email,
-        'password': isGAccount ? gAccount : password,
-        'joinDate': timeNow,
+        'token': User.user.sessionToken,
+        'userid': userid,
+        'name': name,
+        'email': email == 'NO-EMAIL' ? '' : email,
+        'password': password,
+        'role': role ?? 'observer',
       });
-
-      if (!printInsteadOfPostBool) {
-        //Posts to db
-        SQLResponse sqlResponse =
-            SQLResponse(await Dio().post(Urls.userUrl, data: formData));
-
-        if (sqlResponse.status == SQLResponseStatusTypes.success) {
-          if (isGAccount) {
-            //If it is a GAccount, create the userid and get the location Permissions
-            user = User(
-                userid: gAccountUserid,
-                name: google.currentUser?.displayName,
-                email: google.currentUser?.email,
-                password: gAccount,
-                joinDate: timeNow);
-            preferences.setString('user', userToJson([user]));
-            PermissionStatus permissionGranted;
-            permissionGranted = await gvLocation.hasPermission();
-            if (permissionGranted == PermissionStatus.denied) {
-              permissionGranted = await gvLocation.requestPermission();
-              if (permissionGranted != PermissionStatus.granted) {}
-            } else if (permissionGranted == PermissionStatus.granted) {
-              LocationData locationData = await gvLocation.getLocation();
-              userLocation =
-                  LatLng(locationData.latitude!, locationData.longitude!);
-            }
-          } else {
-            user = User(
-                userid: userid,
-                name: name,
-                email: 'NO-EMAIL',
-                password: password,
-                joinDate: timeNow);
-
-            preferences.setString('user', userToJson([user]));
-            PermissionStatus permissionGranted;
-            permissionGranted = await gvLocation.hasPermission();
-            if (permissionGranted == PermissionStatus.denied) {
-              permissionGranted = await gvLocation.requestPermission();
-              if (permissionGranted != PermissionStatus.granted) {}
-            } else if (permissionGranted == PermissionStatus.granted) {
-              LocationData locationData = await gvLocation.getLocation();
-              userLocation =
-                  LatLng(locationData.latitude!, locationData.longitude!);
-            }
-          }
-        }
-        return sqlResponse;
-      } else {
-        myPrint('Post: ${formData.fields}');
+      if (printInsteadOfPostBool) {
+        myPrint('Post user: ${formData.fields.map((e) => e.key)}');
         return null;
       }
-    } catch (e) {
-      myPrint(e);
-      return null;
-    }
-  }
 
-  @Deprecated('Not fully implemented.')
-
-  ///Updates the user. Call [setState] after function
-  Future<SQLResponse?> put() async {
-    var formData = FormData.fromMap({
-      'request': RequestType.putUser.toString(),
-      'userid': userid,
-      'name': name,
-      'email': email,
-      'password': password,
-      'joinDate': ''
-    });
-
-    SQLResponse? sqlResponse =
-        SQLResponse(await Dio().post(Urls.userUrl, data: formData));
-
-    if (!printInsteadOfPostBool) {
-      if (sqlResponse.status == SQLResponseStatusTypes.success) {
-        User.user.email = email;
-        hasEmailBool = true;
+      final sqlResponse =
+          SQLResponse(await apiClient.post(Urls.userUrl, data: formData));
+      final createdUser = sqlResponse.user;
+      if (sqlResponse.status == SQLResponseStatusTypes.success &&
+          createdUser?.sessionToken != null) {
+        user = createdUser!;
+        await preferences.setString('user', userToJson([user]));
+        await _loadLocationPermission();
       }
       return sqlResponse;
-    } else {
-      myPrint('Edit: ${formData.fields}');
+    } catch (error) {
+      myPrint(error);
       return null;
     }
   }
 
-  ///Authenticates the user on the server. Password verification must never be
-  ///performed by the Flutter client.
+  Future<SQLResponse?> put({String? newPassword}) async {
+    try {
+      final formData = FormData.fromMap({
+        'request': RequestType.putUser.toString(),
+        'token': User.user.sessionToken,
+        'userId': id ?? User.user.id,
+        'name': name,
+        'email': email == 'NO-EMAIL' ? '' : email,
+        'role': role ?? User.user.role,
+        'isActive': isActive ?? User.user.isActive,
+        'newPassword': newPassword ?? '',
+      });
+      if (printInsteadOfPostBool) {
+        myPrint('Update user: ${formData.fields.map((e) => e.key)}');
+        return null;
+      }
+
+      final sqlResponse =
+          SQLResponse(await apiClient.post(Urls.userUrl, data: formData));
+      if (sqlResponse.status == SQLResponseStatusTypes.success &&
+          (id == null || id == User.user.id) &&
+          sqlResponse.user != null) {
+        final token = User.user.sessionToken;
+        User.user = sqlResponse.user!..sessionToken = token;
+        await preferences.setString('user', userToJson([User.user]));
+      }
+      return sqlResponse;
+    } catch (error) {
+      myPrint(error);
+      return null;
+    }
+  }
+
   Future<SQLResponse?> get() async {
     try {
-      //Json to be sent to php
-      var formData = FormData.fromMap({
+      final formData = FormData.fromMap({
         'request': RequestType.login.toString(),
-        'userid': userid,
-        'name': '',
+        'userid': userid ?? email,
         'email': email,
         'password': password,
-        'joinDate': '',
       });
-
-      if (!printInsteadOfPostBool) {
-        SQLResponse sqlResponse =
-            SQLResponse(await Dio().post(Urls.userUrl, data: formData));
-        return sqlResponse; // Returned to be validated
-      } else {
-        myPrint('Get: ${formData.fields}');
+      if (printInsteadOfPostBool) {
+        myPrint('Login requested for $userid');
         return null;
       }
-    } catch (e) {
+      return SQLResponse(await apiClient.post(Urls.userUrl, data: formData));
+    } catch (error) {
+      myPrint(error);
       return null;
     }
   }
 
-  ///Drop the user along with their locations and items
+  Future<SQLResponse?> validateSession() async {
+    try {
+      final response = SQLResponse(await apiClient.post(
+        Urls.userUrl,
+        data: FormData.fromMap({
+          'request': RequestType.session.toString(),
+          'token': sessionToken,
+        }),
+      ));
+      if (response.status == SQLResponseStatusTypes.success &&
+          response.user != null) {
+        final token = sessionToken;
+        user = response.user!..sessionToken = token;
+        await preferences.setString('user', userToJson([user]));
+      }
+      return response;
+    } catch (error) {
+      myPrint(error);
+      return null;
+    }
+  }
+
+  Future<void> logout() async {
+    final token = User.user.sessionToken;
+    if (token != null && token.isNotEmpty) {
+      try {
+        await apiClient.post(
+          Urls.userUrl,
+          data: FormData.fromMap({
+            'request': RequestType.logout.toString(),
+            'token': token,
+          }),
+        );
+      } catch (error) {
+        myPrint(error);
+      }
+    }
+    await preferences.remove('user');
+    clearData();
+  }
+
   Future<SQLResponse?> drop({String? currentPassword}) async {
     try {
-      //Json sent to php
-      var formData = FormData.fromMap({
+      final formData = FormData.fromMap({
         'request': RequestType.dropUser.toString(),
-        'userid': userid,
-        'name': '',
-        'email': '',
+        'token': User.user.sessionToken,
+        'userId': id ?? User.user.id,
         'password': currentPassword,
-        'joinDate': '',
       });
-      if (!printInsteadOfPostBool) {
-        SQLResponse sqlResponse =
-            SQLResponse(await Dio().post(Urls.userUrl, data: formData));
-
-        if (sqlResponse.status == SQLResponseStatusTypes.success) {
-          Get.offAll(() => const SignUpOrLogInPage());
-          preferences.remove('user');
-          clearData();
-        }
-        return sqlResponse;
-      } else {
-        myPrint('Dropped userid: ${formData.fields[1]}');
+      if (printInsteadOfPostBool) {
+        myPrint('Delete user requested');
         return null;
       }
-    } catch (e) {
+      final sqlResponse =
+          SQLResponse(await apiClient.post(Urls.userUrl, data: formData));
+      if (sqlResponse.status == SQLResponseStatusTypes.success &&
+          (id == null || id == User.user.id)) {
+        await preferences.remove('user');
+        clearData();
+        Get.offAll(() => const SignUpOrLogInPage());
+      }
+      return sqlResponse;
+    } catch (error) {
+      myPrint(error);
       return null;
     }
   }
 
-  ///Validate Log in. Call [setState] after function.
   Future<bool> validate() async {
-    SQLResponse? sqlResponse = await get();
-
+    final sqlResponse = await get();
     if (sqlResponse?.status == SQLResponseStatusTypes.success &&
-        sqlResponse?.user != null) {
+        sqlResponse?.user?.sessionToken != null) {
       user = sqlResponse!.user!;
-      // Retain only for the current process. userToJson deliberately omits it.
-      user.password = password;
-      preferences.setString('user', userToJson([user]));
-
-      PermissionStatus permissionGranted;
-      permissionGranted = await gvLocation.hasPermission();
-      if (permissionGranted == PermissionStatus.denied) {
-        permissionGranted = await gvLocation.requestPermission();
-        if (permissionGranted != PermissionStatus.granted) {}
-      } else if (permissionGranted == PermissionStatus.granted) {
-        LocationData locationData = await gvLocation.getLocation();
-        userLocation = LatLng(locationData.latitude!, locationData.longitude!);
-      }
+      await preferences.setString('user', userToJson([user]));
+      await _loadLocationPermission();
       return true;
-    } else {
-      myPrint(sqlResponse);
-      incorrectPassword = true;
-      return false;
     }
+    incorrectPassword = true;
+    return false;
   }
 
-  ///Check if the email already exists in the database. Returns a list. List[0] returns if email exists. List[1]
-  ///returns the [sqlResponse]
+  /// Retained for the profile email editor. The server performs the real
+  /// uniqueness check again when the account is updated.
   Future<List?> verifyEmail() async {
     try {
-      //Json sent to php
-      var formData = FormData.fromMap({
-        'request': RequestType.get.toString(),
-        'userid': email,
-        'name': '',
-        'email': email,
-        'password': '',
-        'joinDate': '',
-      });
-
-      if (!printInsteadOfPostBool) {
-        SQLResponse sqlResponse =
-            SQLResponse(await Dio().post(Urls.userUrl, data: formData));
-        if (sqlResponse.status == SQLResponseStatusTypes.success) {
-          if (null != sqlResponse.user) {
-            return [true, sqlResponse];
-          } else {
-            return [false, null];
-          }
-        } else {
-          return [false, sqlResponse];
-        }
-      } else {
-        myPrint('Find: ${formData.fields}');
-        return null;
+      final response = SQLResponse(await apiClient.post(
+        Urls.userUrl,
+        data: FormData.fromMap({
+          'request': RequestType.emailCheck.toString(),
+          'token': User.user.sessionToken,
+          'email': email,
+        }),
+      ));
+      if (response.status != SQLResponseStatusTypes.success) {
+        return [false, response];
       }
-    } catch (e) {
+      return [response.emailExists, response.emailExists ? response : null];
+    } catch (error) {
+      myPrint(error);
       return null;
     }
   }
 
-  static final google = GoogleSignIn();
-
-  ///Sign up/Log in with google. Call [setState] after function
-  ///Only set the userIdNumber when
-  static Future<User?> getGoogleAccount() async {
-    if (await google.signIn() != null) {
-      return User(
-          userid: google.currentUser?.displayName
-              ?.toLowerCase()
-              .removeAllWhitespace,
-          name: google.currentUser?.displayName,
-          email: google.currentUser?.email,
-          joinDate: timeNow,
-          password: gAccount);
-    } else {
+  static Future<SQLResponse?> listTeam() async {
+    try {
+      return SQLResponse(await apiClient.post(
+        Urls.userUrl,
+        data: FormData.fromMap({
+          'request': RequestType.listUsers.toString(),
+          'token': User.user.sessionToken,
+        }),
+      ));
+    } catch (error) {
+      myPrint(error);
       return null;
     }
   }
+
+  static Future<void> _loadLocationPermission() async {
+    PermissionStatus permission = await gvLocation.hasPermission();
+    if (permission == PermissionStatus.denied) {
+      permission = await gvLocation.requestPermission();
+    }
+    if (permission == PermissionStatus.granted) {
+      final locationData = await gvLocation.getLocation();
+      if (locationData.latitude != null && locationData.longitude != null) {
+        userLocation = LatLng(locationData.latitude!, locationData.longitude!);
+      }
+    }
+  }
+}
+
+int? _asInt(dynamic value) {
+  if (value == null) return null;
+  return int.tryParse(value.toString());
+}
+
+bool _asBool(dynamic value, {bool fallback = false}) {
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  if (value is String) return value.toLowerCase() == 'true' || value == '1';
+  return fallback;
 }

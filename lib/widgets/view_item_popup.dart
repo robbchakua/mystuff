@@ -7,7 +7,6 @@ import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
-import 'package:location/location.dart';
 import '../models/item_model.dart';
 import '../models/response_model.dart';
 import '../pages/location_page.dart';
@@ -112,12 +111,6 @@ class ViewItemColumnState extends State<ViewItemColumn> {
           ));
 
   void updateItem() async {
-    if (userLocation == const LatLng(0, 0)) {
-      LocationData locationData = await gvLocation.getLocation();
-      setState(() {
-        userLocation = LatLng(locationData.latitude!, locationData.longitude!);
-      });
-    }
     ImagePicker imagePicker = ImagePicker();
     XFile? compressedImage = await imagePicker.pickImage(
         source: ImageSource.camera, imageQuality: 15);
@@ -127,42 +120,6 @@ class ViewItemColumnState extends State<ViewItemColumn> {
         file = File(compressedImage.path);
       });
 
-      setState(() {
-        locationsCloseToUserList = [];
-      });
-      for (var i = 0; i < locationsJsonList.length; i++) {
-        double lat = userLocation.latitude;
-        double lng = userLocation.longitude;
-
-        double lowerBoundLat =
-            stringToLatLng(locationsJsonList[i].location!).latitude -
-                fiftyMeters;
-        double upperBoundLat =
-            stringToLatLng(locationsJsonList[i].location!).latitude +
-                fiftyMeters;
-        double lowerBoundLng =
-            stringToLatLng(locationsJsonList[i].location!).longitude -
-                fiftyMeters;
-        double upperBoundLng =
-            stringToLatLng(locationsJsonList[i].location!).longitude +
-                fiftyMeters;
-
-        if (lowerBoundLat <= lat &&
-            lat <= upperBoundLat &&
-            lowerBoundLng <= lng &&
-            lng <= upperBoundLng) {
-          locationsCloseToUserList.add(locationsJsonList[i].name!);
-          setState(() {
-            locationCloseToUser = true;
-          });
-          myPrint("In Proximity($i): ${locationsJsonList[i].name!}");
-        }
-      }
-      if (locationsCloseToUserList.isEmpty) {
-        setState(() {
-          locationCloseToUser = false;
-        });
-      }
       await updateItemPage();
       Navigator.pop(context);
     }
@@ -204,6 +161,11 @@ class ViewItemColumnState extends State<ViewItemColumn> {
 
   @override
   Widget build(BuildContext context) {
+    final currentItem = getItemIndexFromId(id) >= 0
+        ? itemsJsonList[getItemIndexFromId(id)]
+        : null;
+    final canEdit = currentItem?.canEdit ?? false;
+    final bin = getLocationFromId(locationId);
     return SizedBox(
         width: screenWidth(context) / 4,
         child: SingleChildScrollView(
@@ -249,46 +211,51 @@ class ViewItemColumnState extends State<ViewItemColumn> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Expanded(child: SubHeader('Location: $location')),
+                    Expanded(
+                        child: SubHeader(
+                            'Bin: ${bin == null ? location : binDisplayPath(bin)}')),
                     CircleAvatar(
                       backgroundColor: const Color(0xAA1B1B1B),
                       foregroundColor: inverseColor(context),
                       radius: screenWidth(context) / 17,
                       child: IconButton(
-                          onPressed: () async {
-                            if (!networkError) {
-                              setState(() {
-                                listItems = false;
-                                listLocations = false;
-                                targetPosition = stringToLatLng(
-                                    locationsJsonList[
-                                            getLocationIndexFromId(locationId)]
-                                        .location!);
-                              });
-                              if (googleMapsController.isCompleted) {
-                                GoogleMapController controller =
-                                    await googleMapsController.future;
-                                controller.animateCamera(
-                                    CameraUpdate.newCameraPosition(
-                                        CameraPosition(
-                                            target: stringToLatLng(
-                                                locationsJsonList[
-                                                        getLocationIndexFromId(
-                                                            locationId)]
-                                                    .location!),
-                                            zoom: cameraZoom >= 17
-                                                ? cameraZoom
-                                                : 17)));
-                              }
-                              Get.to(() => ItemLocationScreen(
-                                    withTarget: true,
-                                  ));
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                      content: BodyText('Network Error...')));
-                            }
-                          },
+                          onPressed: bin?.location?.contains(',') == true
+                              ? () async {
+                                  if (!networkError) {
+                                    setState(() {
+                                      listItems = false;
+                                      listLocations = false;
+                                      targetPosition = stringToLatLng(
+                                          locationsJsonList[
+                                                  getLocationIndexFromId(
+                                                      locationId)]
+                                              .location!);
+                                    });
+                                    if (googleMapsController.isCompleted) {
+                                      GoogleMapController controller =
+                                          await googleMapsController.future;
+                                      controller.animateCamera(CameraUpdate
+                                          .newCameraPosition(CameraPosition(
+                                              target: stringToLatLng(
+                                                  locationsJsonList[
+                                                          getLocationIndexFromId(
+                                                              locationId)]
+                                                      .location!),
+                                              zoom: cameraZoom >= 17
+                                                  ? cameraZoom
+                                                  : 17)));
+                                    }
+                                    Get.to(() => ItemLocationScreen(
+                                          withTarget: true,
+                                        ));
+                                  } else {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                            content:
+                                                BodyText('Network Error...')));
+                                  }
+                                }
+                              : null,
                           icon: const Icon(Icons.location_on)),
                     )
                   ],
@@ -303,30 +270,31 @@ class ViewItemColumnState extends State<ViewItemColumn> {
               padding: const EdgeInsets.all(8.0),
               child: BodyText('Number of item(s): $quantity'),
             ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                TextButton(
-                  onPressed: updateItem,
-                  style: ButtonStyle(
-                      backgroundColor:
-                          MaterialStateProperty.all(const Color(0xAA1B1B1B))),
-                  child: const ButtonText('Update Item'),
-                ),
-                TextButton(
-                  onPressed: () async {
-                    await deleteItem(id: id, title: name!);
-                    if (deletedItem) {
-                      Navigator.pop(context);
-                    }
-                  },
-                  style: ButtonStyle(
-                      backgroundColor:
-                          MaterialStateProperty.all(const Color(0xAAFF0000))),
-                  child: const ButtonText('Delete Item'),
-                )
-              ],
-            )
+            if (canEdit)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  TextButton(
+                    onPressed: updateItem,
+                    style: ButtonStyle(
+                        backgroundColor:
+                            MaterialStateProperty.all(const Color(0xAA1B1B1B))),
+                    child: const ButtonText('Update Item'),
+                  ),
+                  TextButton(
+                    onPressed: () async {
+                      await deleteItem(id: id, title: name!);
+                      if (deletedItem && context.mounted) {
+                        Navigator.pop(context);
+                      }
+                    },
+                    style: ButtonStyle(
+                        backgroundColor:
+                            MaterialStateProperty.all(const Color(0xAAFF0000))),
+                    child: const ButtonText('Delete Item'),
+                  )
+                ],
+              )
           ]),
         )));
   }

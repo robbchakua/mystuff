@@ -1,268 +1,191 @@
 import 'dart:convert';
-import 'package:dad_app/models/user_model.dart';
-import 'package:flutter/material.dart';
-import 'package:dad_app/models/location_model.dart';
+
 import 'package:dad_app/models/response_model.dart';
-import 'package:dad_app/tests/php_test.dart';
+import 'package:dad_app/models/user_model.dart';
 import 'package:dad_app/utils/constants.dart';
+import 'package:dad_app/utils/api.dart';
 import 'package:dad_app/utils/init.dart';
 import 'package:dad_app/utils/utils.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-List<Item> itemsFromJson(String str) =>
-    List<Item>.from(json.decode(str).map((x) => Item.fromJson(x)));
+List<Item> itemsFromJson(String str) => List<Item>.from(
+    (json.decode(str) as List).map((value) => Item.fromJson(value)));
 
 String itemsToJson(List<Item> data) =>
-    json.encode(List<dynamic>.from(data.map((x) => x.toJson())));
+    json.encode(data.map((item) => item.toJson()).toList());
 
 class Item {
   int? id;
   String? userid;
   String? name;
   DateTime? storeDate;
+  int? binId;
   String? location;
   String? image;
   bool? multiple;
-  int? quantity; // If Multiple
+  int? quantity;
   String? description;
+  bool canEdit;
 
   Item({
     this.id,
     this.userid,
     this.name,
     this.storeDate,
+    this.binId,
     this.location,
     this.image,
     this.multiple,
     this.quantity,
     this.description,
+    this.canEdit = false,
   });
 
-  //Replace any characters that could affect the database.
-  //
-  // - "'" can make the query end
-  //
-  // - '"' can make the query end.
-  //
-  // - ',,,' used to separate the locations and items on get.
-  String? get newName => safeString(name ?? 'null');
-
-  String? get newLocationName => safeString(location ?? 'null');
-
-  String? get newDescription => safeString(description ?? 'null');
-
-  ///Get file name
+  String get newName => safeString(name ?? '');
+  String get newDescription => safeString(description ?? '');
   String get fileName => file.path.split('/').last;
 
-  ///Converts to [Item]
   factory Item.fromJson(Map<String, dynamic> json) => Item(
-        id: int.parse(json["id"]),
-        userid: json["userid"],
-        name: json["name"],
-        storeDate: DateTime.parse(json["storeDate"]),
-        location: json["location"],
-        image: json["image"],
-        multiple: bool.parse(json["multiple"]),
-        quantity: int.parse(json["quantity"]),
-        description: json["description"],
+        id: _asInt(json['id']),
+        userid: json['userid']?.toString(),
+        name: json['name']?.toString(),
+        storeDate: DateTime.tryParse(json['storeDate']?.toString() ?? ''),
+        binId: _asInt(json['binId'] ?? json['bin_id']),
+        location: json['location']?.toString(),
+        image: json['image']?.toString(),
+        multiple: _asBool(json['multiple']),
+        quantity: _asInt(json['quantity']) ?? 1,
+        description: json['description']?.toString() ?? '',
+        canEdit: _asBool(json['canEdit']),
       );
 
-  ///Convert to json
   Map<String, dynamic> toJson() => {
-        "id": id,
-        "userid": User.user.userid,
-        "name": name,
-        "storeDate":
-            "${storeDate?.year.toString().padLeft(4, '0')}-${storeDate?.month.toString().padLeft(2, '0')}-${storeDate?.day.toString().padLeft(2, '0')}",
-        "locationName": location,
-        "image": image,
-        "multiple": multiple,
-        "quantity": quantity,
-        "description": description,
+        'id': id,
+        'userid': userid,
+        'name': name,
+        'storeDate': _dateString(storeDate),
+        'binId': binId,
+        'location': location,
+        'image': image,
+        'multiple': multiple,
+        'quantity': quantity,
+        'description': description,
+        'canEdit': canEdit,
       };
 
-  ///Converts to json to give the HTTP-request parameters.
-  Future<FormData> toJsonExtended(
-      {required RequestType requestType,
-      required bool newLocation,
-      Color? newLocationColor,
-      String? oldImageLocation,
-      LatLng? newLocationCoordinates}) async {
-    //Return json
+  Future<FormData> toJsonExtended({required RequestType requestType}) async {
+    final resolvedBinId = binId ?? getLocationIdFromName(location ?? '');
     return FormData.fromMap({
-      "request": requestType.toString(), //0
-      "id": id, //1
-      "userid": User.user.userid, //2
-      "name": newName, //3
-      "storeDate":
-          "${storeDate?.year.toString().padLeft(4, '0')}-${storeDate?.month.toString().padLeft(2, '0')}-${storeDate?.day.toString().padLeft(2, '0')}", //4
-      "location": newLocationName, //5
-      "multiple": multiple, //6
-      "quantity": quantity, //7
-      "description": newDescription, //8
-      "newLocation": newLocation.toString(), //9
-      "newLocationColor": colorToString(newLocationColor), //10
-      "newLocationCoordinates": latLngToString(newLocationCoordinates), //11
-      "oldImageLocation": oldImageLocation, //12
-      "image": printInsteadOfPostBool
-          ? 'image'
-          : await MultipartFile.fromFile(file.path, filename: fileName),
+      'request': requestType.toString(),
+      'token': User.user.sessionToken,
+      'id': id,
+      'name': newName,
+      'storeDate': _dateString(storeDate ?? timeNow),
+      'binId': resolvedBinId == 0 ? null : resolvedBinId,
+      'multiple': multiple ?? false,
+      'quantity': quantity ?? 1,
+      'description': newDescription,
+      if (file.path.isNotEmpty)
+        'image': await MultipartFile.fromFile(file.path, filename: fileName),
     });
   }
 
-  ///Converts to string
-
   @override
-  String toString() => "Item[${getItemIndexFromId(id!)}]("
-      "Id: ${id ?? 'null'}, "
-      "UserId: ${User.user.userid ?? 'null'}, "
-      "Name: ${name ?? 'null'}, "
-      "Store Date: ${storeDate?.year.toString().padLeft(4, '0')}-"
-      "${storeDate?.month.toString().padLeft(2, '0')}-"
-      "${storeDate?.day.toString().padLeft(2, '0') ?? 'null'}, "
-      "Location Name: ${location ?? 'null'}, "
-      "Image: ${image ?? 'null'}, "
-      "Multiple: ${multiple ?? 'null'}, "
-      "Quantity: ${quantity ?? 'null'}, "
-      "Description: ${description?.replaceAll('\n', '') ?? 'null'})";
+  String toString() => 'Item(Id: $id, Name: $name, BinId: $binId, '
+      'Bin: $location, Image: $image, Multiple: $multiple, '
+      'Quantity: $quantity, Description: $description)';
 
-  ///Posts new Item and adds to [itemsJsonList]
-  Future<SQLResponse?> post(
-      {required bool newLocation,
-      Color? newLocationColor,
-      LatLng? newLocationCoordinates}) async {
+  Future<SQLResponse?> post({
+    bool newLocation = false,
+    Color? newLocationColor,
+    LatLng? newLocationCoordinates,
+  }) async {
     try {
-      //Convert to json
-      var formData = await toJsonExtended(
-          newLocation: newLocation,
-          newLocationColor: newLocationColor,
-          newLocationCoordinates: newLocationCoordinates,
-          requestType: RequestType.postItem);
-
-      //Print for debugging purposes instead of posting
-      if (!printInsteadOfPostBool) {
-        SQLResponse sqlResponse =
-            SQLResponse(await Dio().post(Urls.postUrl, data: formData));
-        if (sqlResponse.status == SQLResponseStatusTypes.success && !noUpdate) {
-          itemsJsonList.add(Item(
-              id: nextItemId(),
-              userid: User.user.userid,
-              name: newName,
-              storeDate: timeNow,
-              location: newLocationName,
-              multiple: multiple,
-              quantity: quantity,
-              description: newDescription,
-              image: "images/items/$fileName"));
-          if (newLocation) {
-            locationsJsonList.add(Location(
-                id: nextLocationId(),
-                userid: User.user.userid,
-                name: newLocationName,
-                location: latLngToString(newLocationCoordinates),
-                color: colorToString(newLocationColor)));
-          }
-          resetItemList();
-          resetLocationList();
-          getMarkers();
-        }
-        return sqlResponse;
-      } else {
+      final formData = await toJsonExtended(requestType: RequestType.postItem);
+      if (printInsteadOfPostBool) {
         myPrint(toString());
         return null;
       }
-    } catch (e) {
+      final response =
+          SQLResponse(await apiClient.post(Urls.postUrl, data: formData));
+      _applyData(response);
+      return response;
+    } catch (error) {
+      myPrint(error);
       return null;
     }
   }
 
-  ///Put Item and updates to [itemsJsonList]. Make sure to use the id for the item you want to update/put.
-  ///Call [setState] after function
-  Future<SQLResponse?> put(
-      {required bool newLocation,
-      Color? newLocationColor,
-      LatLng? newLocationCoordinates,
-      String? oldImageLocation}) async {
+  Future<SQLResponse?> put({
+    bool newLocation = false,
+    Color? newLocationColor,
+    LatLng? newLocationCoordinates,
+    String? oldImageLocation,
+  }) async {
     try {
-      //Convert data to json
-      var formData = await toJsonExtended(
-          newLocation: newLocation,
-          oldImageLocation: oldImageLocation,
-          newLocationColor: newLocationColor,
-          newLocationCoordinates: newLocationCoordinates,
-          requestType: RequestType.putItem);
-      if (!printInsteadOfPostBool) {
-        SQLResponse sqlResponse =
-            SQLResponse(await Dio().post(Urls.postUrl, data: formData));
-        if (sqlResponse.status == SQLResponseStatusTypes.success && !noUpdate) {
-          for (var e in itemsJsonList) {
-            if (e.id == id) {
-              e.name = newName;
-              e.image = "images/items/$image";
-              e.location = newLocationName;
-              e.multiple = multiple;
-              e.quantity = quantity;
-              e.description = newDescription;
-            }
-          }
-          if (newLocation) {
-            locationsJsonList.add(Location(
-                id: nextLocationId(),
-                userid: User.user.userid,
-                name: newLocationName,
-                location: latLngToString(newLocationCoordinates),
-                color: colorToString(newLocationColor)));
-          }
-          resetItemList();
-          resetLocationList();
-          getMarkers();
-        }
-
-        return sqlResponse;
-      } else {
+      final formData = await toJsonExtended(requestType: RequestType.putItem);
+      if (printInsteadOfPostBool) {
         myPrint(toString());
         return null;
       }
-    } catch (e) {
+      final response =
+          SQLResponse(await apiClient.post(Urls.postUrl, data: formData));
+      _applyData(response);
+      return response;
+    } catch (error) {
+      myPrint(error);
       return null;
     }
   }
 
-  ///Drops Item and deletes from [itemsJsonList]. The id is the only parameter needed while making/calling the item
-  ///object. Call [setState] after function.
   Future<SQLResponse?> drop() async {
     try {
-      var formData = FormData.fromMap({
+      final formData = FormData.fromMap({
         'request': RequestType.dropItem.toString(),
+        'token': User.user.sessionToken,
         'id': id,
-        'userid': User.user.userid
       });
-      if (!printInsteadOfPostBool) {
-        SQLResponse sqlResponse =
-            SQLResponse(await Dio().post(Urls.postUrl, data: formData));
-
-        if (sqlResponse.status == SQLResponseStatusTypes.success && !noUpdate) {
-          itemsJsonList.removeWhere((e) => e.id == id);
-          resetItemList();
-          resetLocationList();
-          getMarkers();
-
-          if (itemsJsonList.isEmpty) {
-            noItems = true;
-          } else {
-            getMarkers();
-            resetItemList();
-          }
-        }
-        return sqlResponse;
-      } else {
-        myPrint("Deleted: ${formData.fields}");
-        myPrint(toString());
+      if (printInsteadOfPostBool) {
+        myPrint('Delete item $id');
         return null;
       }
-    } catch (e) {
+      final response =
+          SQLResponse(await apiClient.post(Urls.postUrl, data: formData));
+      _applyData(response);
+      return response;
+    } catch (error) {
+      myPrint(error);
       return null;
     }
   }
+
+  static void _applyData(SQLResponse response) {
+    if (response.status != SQLResponseStatusTypes.success) return;
+    itemsJsonList = response.items;
+    locationsJsonList = response.locations;
+    noItems = itemsJsonList.isEmpty;
+    resetItemList();
+    resetLocationList();
+    getMarkers();
+  }
+}
+
+String _dateString(DateTime? date) {
+  final value = date ?? DateTime.now();
+  return '${value.year.toString().padLeft(4, '0')}-'
+      '${value.month.toString().padLeft(2, '0')}-'
+      '${value.day.toString().padLeft(2, '0')}';
+}
+
+int? _asInt(dynamic value) {
+  if (value == null || value.toString().isEmpty) return null;
+  return int.tryParse(value.toString());
+}
+
+bool _asBool(dynamic value) {
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  return value?.toString().toLowerCase() == 'true' || value?.toString() == '1';
 }

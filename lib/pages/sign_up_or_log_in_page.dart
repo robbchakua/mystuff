@@ -7,18 +7,9 @@ import 'package:dad_app/utils/utils.dart';
 import 'package:dad_app/widgets/text.dart';
 import 'package:flutter/material.dart' hide Title;
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:google_sign_in/google_sign_in.dart';
-import 'package:location/location.dart';
 import '../models/user_model.dart';
 import '../utils/constants.dart';
 import 'home.dart';
-
-class GoogleSignUpApi {
-  static final googleSignIn = GoogleSignIn();
-
-  static Future<GoogleSignInAccount?> signUp() => googleSignIn.signIn();
-}
 
 class SignUpOrLogInPage extends StatefulWidget {
   const SignUpOrLogInPage({super.key});
@@ -44,81 +35,6 @@ class _SignUpOrLogInPageState extends State<SignUpOrLogInPage> {
   //
   //
 
-  Future logInWithGoogle() async {
-    setState(() {
-      processing = true;
-    });
-    User? googleUser = await User.getGoogleAccount();
-    if (googleUser != null) {
-      List? email = await googleUser.verifyEmail();
-      if (email != null) {
-        bool emailExist = email[0];
-        if (emailExist) {
-          setState(() {
-            User.user = (email[1] as SQLResponse).user!;
-          });
-          preferences.setString('user', userToJson([User.user]));
-          PermissionStatus permissionGranted;
-          permissionGranted = await gvLocation.hasPermission();
-          if (permissionGranted == PermissionStatus.denied) {
-            permissionGranted = await gvLocation.requestPermission();
-            if (permissionGranted != PermissionStatus.granted) {}
-          } else if (permissionGranted == PermissionStatus.granted) {
-            LocationData locationData = await gvLocation.getLocation();
-            setState(() {
-              userLocation =
-                  LatLng(locationData.latitude!, locationData.longitude!);
-            });
-          }
-          setState(() {
-            processing = false;
-          });
-          Get.offAll(() => const Home());
-        } else if (!emailExist && email[1] == null) {
-          await emailNotFoundError();
-        }
-        setState(() {
-          processing = false;
-        });
-      }
-    } else {
-      setState(() {
-        processing = false;
-      });
-    }
-  }
-
-  Future emailNotFoundError() => showDialog(
-      barrierDismissible: false,
-      context: context,
-      builder: (context) => AlertDialog(
-            title: const SubHeader('Error'),
-            content: const SubHeader('Google not linked.\nSign up with one...'),
-            actions: [
-              ElevatedButton(
-                  onPressed: () {
-                    setState(() {
-                      processing = false;
-                    });
-                    User.google.signOut();
-                    Navigator.pop(context);
-                  },
-                  child: const ButtonText('Cancel')),
-              ElevatedButton(
-                  onPressed: () async {
-                    SQLResponse? sqlPost = await User().post(true);
-                    if (sqlPost != null &&
-                        sqlPost.status == SQLResponseStatusTypes.success) {
-                      setState(() {
-                        processing = false;
-                      });
-                      Get.offAll(() => const Home());
-                    }
-                  },
-                  child: const ButtonText('Sign Up'))
-            ],
-          ));
-
   //
   //
   //Sign UP
@@ -138,7 +54,11 @@ class _SignUpOrLogInPageState extends State<SignUpOrLogInPage> {
   String userid = '';
 
   String createUserId(String name) {
-    return name.toLowerCase().removeAllWhitespace;
+    final normalized = name
+        .toLowerCase()
+        .removeAllWhitespace
+        .replaceAll(RegExp(r'[^a-z0-9._-]'), '');
+    return normalized.isEmpty ? 'user' : normalized;
   }
 
   void createNewRandint() {
@@ -148,73 +68,6 @@ class _SignUpOrLogInPageState extends State<SignUpOrLogInPage> {
       _usernameController.text = '';
     });
   }
-
-  Future signUpWithGoogle() async {
-    setState(() {
-      processing = true;
-    });
-    User? googleUser = await User.getGoogleAccount();
-    if (googleUser != null) {
-      List? verify = await googleUser.verifyEmail();
-      if (verify != null) {
-        bool emailCheck = verify[0];
-        if (emailCheck) {
-          userid = (verify[1] as SQLResponse).user!.userid!;
-          await emailInUseError();
-          setState(() {
-            processing = false;
-          });
-        } else if (!emailCheck && verify[1] == null) {
-          SQLResponse? sqlPost = await googleUser.post(true);
-          if (sqlPost != null) {
-            if (sqlPost.status == SQLResponseStatusTypes.success) {
-              setState(() {
-                processing = false;
-              });
-              Get.offAll(() => const Home());
-            }
-          }
-        }
-      }
-    } else {
-      setState(() {
-        processing = false;
-      });
-    }
-  }
-
-  Future emailInUseError() => showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-            title: const SubHeader('Error'),
-            content: SubHeader(
-                '${User.google.currentUser?.email}\nis already linked'),
-            actions: [
-              ElevatedButton(
-                  onPressed: () {
-                    User.google.signOut();
-                    Navigator.pop(context);
-                  },
-                  child: const ButtonText('Cancel')),
-              ElevatedButton(
-                  onPressed: () {
-                    User.user = User(
-                      userid: userid,
-                      name: User.google.currentUser?.displayName,
-                      email: User.google.currentUser?.email,
-                      password: gAccount,
-                      joinDate: timeNow,
-                    );
-                    preferences.setString('user', userToJson([User.user]));
-                    setState(() {
-                      processing = false;
-                    });
-                    Get.offAll(() => const Home());
-                  },
-                  child: const ButtonText('Log in'))
-            ],
-          ));
 
   Future confirmExit() => showDialog(
       context: context,
@@ -388,75 +241,6 @@ class _SignUpOrLogInPageState extends State<SignUpOrLogInPage> {
                                 child: Column(
                                   mainAxisAlignment: MainAxisAlignment.start,
                                   children: [
-                                    Stack(
-                                      alignment: Alignment.center,
-                                      children: [
-                                        OutlinedButton(
-                                            onPressed: signUpWithGoogle,
-                                            style: ButtonStyle(
-                                              backgroundColor:
-                                                  MaterialStateProperty.all(
-                                                      backgroundColor),
-                                              shadowColor:
-                                                  MaterialStateProperty.all(
-                                                      Colors.black),
-                                              padding: MaterialStateProperty
-                                                  .all(EdgeInsets.symmetric(
-                                                      vertical:
-                                                          screenWidth(context) /
-                                                              100,
-                                                      horizontal:
-                                                          screenWidth(context) /
-                                                              100)),
-                                            ),
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                CircleAvatar(
-                                                    backgroundColor:
-                                                        Colors.white,
-                                                    radius:
-                                                        screenWidth(context) /
-                                                            16,
-                                                    child: Image.asset(
-                                                      'assets/images/google-logo.png',
-                                                      width:
-                                                          screenWidth(context) /
-                                                              14,
-                                                      height:
-                                                          screenWidth(context) /
-                                                              14,
-                                                    )),
-                                                SizedBox(
-                                                    width:
-                                                        screenWidth(context) /
-                                                            40),
-                                                const SubHeader(
-                                                    'Continue with Google'),
-                                                SizedBox(
-                                                    width:
-                                                        screenWidth(context) /
-                                                            40),
-                                              ],
-                                            )),
-                                      ],
-                                    ),
-                                    Padding(
-                                        padding: EdgeInsets.symmetric(
-                                            vertical:
-                                                screenHeight(context) / 40),
-                                        child: Stack(
-                                            alignment: Alignment.center,
-                                            children: [
-                                              const Divider(),
-                                              Container(
-                                                  padding: EdgeInsets.symmetric(
-                                                      horizontal:
-                                                          screenWidth(context) /
-                                                              20),
-                                                  color: primaryColor(context),
-                                                  child: const BodyText('Or')),
-                                            ])),
                                     Form(
                                       key: signUpFormKey,
                                       child: Column(
@@ -601,8 +385,8 @@ class _SignUpOrLogInPageState extends State<SignUpOrLogInPage> {
                                                           .hasMatch(value)) {
                                                         return InputErrors
                                                             .missingSpecialChar;
-                                                      } else if (value.length <=
-                                                          8) {
+                                                      } else if (value.length <
+                                                          10) {
                                                         return InputErrors
                                                             .shortPassword;
                                                       } else {
@@ -700,6 +484,18 @@ class _SignUpOrLogInPageState extends State<SignUpOrLogInPage> {
                                                   });
                                                   Get.offAll(
                                                       () => const Home());
+                                                } else {
+                                                  setState(() {
+                                                    processing = false;
+                                                  });
+                                                  if (mounted) {
+                                                    ScaffoldMessenger.of(
+                                                            context)
+                                                        .showSnackBar(SnackBar(
+                                                            content: BodyText(sqlPost
+                                                                    ?.errorMessage ??
+                                                                'Could not create account')));
+                                                  }
                                                 }
                                               } else {
                                                 setState(() {
@@ -755,70 +551,6 @@ class _SignUpOrLogInPageState extends State<SignUpOrLogInPage> {
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.start,
                                 children: [
-                                  Stack(
-                                    alignment: Alignment.center,
-                                    children: [
-                                      OutlinedButton(
-                                          onPressed: logInWithGoogle,
-                                          style: ButtonStyle(
-                                            backgroundColor:
-                                                MaterialStateProperty.all(
-                                                    backgroundColor),
-                                            shadowColor:
-                                                MaterialStateProperty.all(
-                                                    Colors.black),
-                                            padding: MaterialStateProperty.all(
-                                                EdgeInsets.symmetric(
-                                                    vertical:
-                                                        screenWidth(context) /
-                                                            100,
-                                                    horizontal:
-                                                        screenWidth(context) /
-                                                            100)),
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              CircleAvatar(
-                                                  backgroundColor: Colors.white,
-                                                  radius:
-                                                      screenWidth(context) / 16,
-                                                  child: Image.asset(
-                                                    'assets/images/google-logo.png',
-                                                    width:
-                                                        screenWidth(context) /
-                                                            14,
-                                                    height:
-                                                        screenWidth(context) /
-                                                            14,
-                                                  )),
-                                              SizedBox(
-                                                  width: screenWidth(context) /
-                                                      40),
-                                              const SubHeader(
-                                                  'Log In with Google'),
-                                              SizedBox(
-                                                  width: screenWidth(context) /
-                                                      40),
-                                            ],
-                                          )),
-                                    ],
-                                  ),
-                                  Padding(
-                                      padding: EdgeInsets.symmetric(
-                                          vertical: screenHeight(context) / 40),
-                                      child: Stack(
-                                          alignment: Alignment.center,
-                                          children: [
-                                            const Divider(),
-                                            Container(
-                                                padding: EdgeInsets.symmetric(
-                                                    horizontal:
-                                                        screenWidth(context) /
-                                                            20),
-                                                color: primaryColor(context),
-                                                child: const BodyText('Or')),
-                                          ])),
                                   Form(
                                     key: formKey,
                                     child: Column(
@@ -920,34 +652,26 @@ class _SignUpOrLogInPageState extends State<SignUpOrLogInPage> {
                                             incorrectPassword = false;
                                             processing = true;
                                           });
-                                          if (passwordController.text ==
-                                              gAccount) {
-                                            ScaffoldMessenger.of(context)
-                                                .showSnackBar(const SnackBar(
-                                                    content: BodyText(
-                                                        'Log in with Google instead')));
-                                          } else {
-                                            User newUser = User(
-                                              name: '',
-                                              userid: usernameController.text,
-                                              email: usernameController.text,
-                                              password: passwordController.text,
-                                            );
-                                            bool sqlGet =
-                                                await newUser.validate();
-                                            setState(() {});
+                                          User newUser = User(
+                                            name: '',
+                                            userid: usernameController.text,
+                                            email: usernameController.text,
+                                            password: passwordController.text,
+                                          );
+                                          bool sqlGet =
+                                              await newUser.validate();
+                                          setState(() {});
 
-                                            if (sqlGet) {
-                                              Get.offAll(() => const Home());
-                                              setState(() {
-                                                processing = false;
-                                              });
-                                            } else {
-                                              formKey.currentState!.validate();
-                                              setState(() {
-                                                processing = false;
-                                              });
-                                            }
+                                          if (sqlGet) {
+                                            Get.offAll(() => const Home());
+                                            setState(() {
+                                              processing = false;
+                                            });
+                                          } else {
+                                            formKey.currentState!.validate();
+                                            setState(() {
+                                              processing = false;
+                                            });
                                           }
                                         },
                                         style: ButtonStyle(

@@ -133,6 +133,46 @@ int getLocationIdFromName(String str) {
   return x;
 }
 
+Location? getLocationFromId(int? id) {
+  if (id == null) return null;
+  for (final bin in locationsJsonList) {
+    if (bin.id == id) return bin;
+  }
+  return null;
+}
+
+int binDepth(Location bin) {
+  var depth = 0;
+  var parentId = bin.parentId;
+  final visited = <int>{};
+  while (parentId != null && !visited.contains(parentId)) {
+    visited.add(parentId);
+    final parent = getLocationFromId(parentId);
+    if (parent == null) break;
+    depth++;
+    parentId = parent.parentId;
+  }
+  return depth;
+}
+
+String binDisplayPath(Location bin) {
+  final names = <String>[bin.name ?? 'Unnamed bin'];
+  var parentId = bin.parentId;
+  final visited = <int>{};
+  while (parentId != null && !visited.contains(parentId)) {
+    visited.add(parentId);
+    final parent = getLocationFromId(parentId);
+    if (parent == null) break;
+    names.insert(0, parent.name ?? 'Unnamed bin');
+    parentId = parent.parentId;
+  }
+  return names.join(' / ');
+}
+
+List<Location> editableBins() =>
+    locationsJsonList.where((bin) => bin.canEdit).toList()
+      ..sort((a, b) => binDisplayPath(a).compareTo(binDisplayPath(b)));
+
 double screenHeight(BuildContext context) => MediaQuery.sizeOf(context).height;
 
 double screenWidth(BuildContext context) => MediaQuery.sizeOf(context).width;
