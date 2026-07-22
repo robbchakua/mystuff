@@ -87,15 +87,27 @@ class _OptionalImagePickerState extends State<OptionalImagePicker> {
                           imageUrl: '${Urls.baseUrl}/${widget.existingImage}',
                           fit: BoxFit.cover,
                           errorWidget: (_, __, ___) =>
-                              const Icon(Icons.image_not_supported),
+                              Icon(
+                                Icons.image_not_supported,
+                                color: inverseColor(context),
+                              ),
                         )
-                      : const Center(
+                      : Center(
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.image_not_supported_outlined, size: 44),
-                              SizedBox(height: 8),
-                              Text('No image selected'),
+                              Icon(
+                                Icons.image_not_supported_outlined,
+                                size: 44,
+                                color: inverseColor(context),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'No image selected',
+                                style: TextStyle(
+                                  color: inverseColor(context),
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -108,16 +120,30 @@ class _OptionalImagePickerState extends State<OptionalImagePicker> {
             children: [
               OutlinedButton.icon(
                 onPressed: () => _pick(ImageSource.camera),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: inverseColor(context),
+                  side: BorderSide(color: inverseColor(context)),
+                ),
                 icon: const Icon(Icons.camera_alt_outlined),
                 label: const Text('Camera'),
               ),
               OutlinedButton.icon(
                 onPressed: () => _pick(ImageSource.gallery),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: inverseColor(context),
+                  side: BorderSide(color: inverseColor(context)),
+                ),
                 icon: const Icon(Icons.photo_library_outlined),
                 label: const Text('Gallery'),
               ),
               OutlinedButton.icon(
                 onPressed: _file != null || _hasExisting ? _useNoImage : null,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: inverseColor(context),
+                  disabledForegroundColor:
+                      inverseColor(context).withOpacity(0.4),
+                  side: BorderSide(color: inverseColor(context)),
+                ),
                 icon: const Icon(Icons.hide_image_outlined),
                 label: const Text('No image'),
               ),

@@ -140,6 +140,23 @@ Location? getLocationFromId(int? id) {
   return null;
 }
 
+Set<int> binAndDescendantIds(int rootId) {
+  final result = <int>{rootId};
+  var changed = true;
+  while (changed) {
+    changed = false;
+    for (final bin in locationsJsonList) {
+      if (bin.id != null &&
+          bin.parentId != null &&
+          result.contains(bin.parentId) &&
+          result.add(bin.id!)) {
+        changed = true;
+      }
+    }
+  }
+  return result;
+}
+
 int binDepth(Location bin) {
   var depth = 0;
   var parentId = bin.parentId;

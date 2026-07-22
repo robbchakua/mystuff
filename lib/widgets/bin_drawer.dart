@@ -129,7 +129,7 @@ class _CreateBinDialogState extends State<_CreateBinDialog> {
                   items: editableBins()
                       .map((bin) => DropdownMenuItem<int>(
                             value: bin.id,
-                            child: BodyText(binDisplayPath(bin)),
+                            child: BodyText(bin.name ?? ''),
                           ))
                       .toList(),
                   onChanged: _saving
@@ -319,7 +319,7 @@ class _BinDrawerState extends State<BinDrawer> {
                     items: parentChoices
                         .map((candidate) => DropdownMenuItem<int>(
                               value: candidate.id,
-                              child: BodyText(binDisplayPath(candidate)),
+                              child: BodyText(candidate.name ?? ''),
                             ))
                         .toList(),
                     onChanged: (value) =>
@@ -434,7 +434,7 @@ class _BinDrawerState extends State<BinDrawer> {
                   items: replacements
                       .map((candidate) => DropdownMenuItem<int>(
                             value: candidate.id,
-                            child: BodyText(binDisplayPath(candidate)),
+                            child: BodyText(candidate.name ?? ''),
                           ))
                       .toList(),
                   onChanged: (value) =>
@@ -554,7 +554,7 @@ class _BinDrawerState extends State<BinDrawer> {
   Future<void> _binActions(Location bin) => showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: Header(binDisplayPath(bin)),
+          title: Header(bin.name ?? 'Bin'),
           actions: [
             ElevatedButton(
               onPressed: () {

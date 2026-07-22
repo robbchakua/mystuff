@@ -22,13 +22,12 @@ void getMarkers() async {
             snippet: 'View items',
             onTap: () {
               listItems = true;
-              itemsUpdatingList = [];
-              for (var o = 0; o < itemsJsonList.length; o++) {
-                if (itemsJsonList[o].binId == locationsJsonList[i].id) {
-                  itemsUpdatingList.add(itemsJsonList[o]);
-                }
-                itemsUpdatingListLength = itemsUpdatingList.length;
-              }
+              final visibleBinIds =
+                  binAndDescendantIds(locationsJsonList[i].id!);
+              itemsUpdatingList = itemsJsonList
+                  .where((item) => visibleBinIds.contains(item.binId))
+                  .toList();
+              itemsUpdatingListLength = itemsUpdatingList.length;
               Get.to(() => const Home());
             },
           )));

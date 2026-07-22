@@ -237,7 +237,7 @@ class _ViewItemColumnState extends State<ViewItemColumn> {
                 children: [
                   Expanded(
                     child: SubHeader(
-                      'Bin: ${bin == null ? item.location : binDisplayPath(bin)}',
+                      'Bin: ${bin?.name ?? item.location ?? ''}',
                     ),
                   ),
                   IconButton.filled(

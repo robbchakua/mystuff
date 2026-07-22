@@ -143,11 +143,7 @@ class _HomeState extends State<Home> {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: processing
-            ? Colors.transparent
-            : stringToColor(
-                locationsJsonList[getLocationIndexFromId(locationId)].color!,
-              ),
+        backgroundColor: primaryColor(context),
         content: ViewItemColumn(
           id: id,
           name: name,
@@ -356,6 +352,9 @@ class _HomeState extends State<Home> {
   }
 
   void _applyItemFilters({bool notify = true}) {
+    final filteredBinIds = _binFilter == null
+        ? null
+        : binAndDescendantIds(_binFilter!);
     final filtered = itemsJsonList.where((item) {
       final matchesSearch = _searchQuery.isEmpty ||
           (item.name ?? '').toLowerCase().contains(_searchQuery) ||
@@ -366,7 +365,8 @@ class _HomeState extends State<Home> {
       final matchesTag = _tagFilter == null || item.tags.any(
             (tag) => tag.toLowerCase() == _tagFilter!.toLowerCase(),
           );
-      final matchesBin = _binFilter == null || item.binId == _binFilter;
+      final matchesBin =
+          filteredBinIds == null || filteredBinIds.contains(item.binId);
       return matchesSearch && matchesStatus && matchesTag && matchesBin;
     }).toList();
 
@@ -452,7 +452,7 @@ class _HomeState extends State<Home> {
                       (bin) => DropdownMenuItem<int?>(
                         value: bin.id,
                         child: Text(
-                          binDisplayPath(bin),
+                          bin.name ?? '',
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),

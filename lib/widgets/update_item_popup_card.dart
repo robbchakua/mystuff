@@ -176,7 +176,7 @@ class _UpdateItemColumnState extends State<UpdateItemColumn> {
                         .map((bin) => DropdownMenuItem<int>(
                               value: bin.id,
                               child: Text(
-                                binDisplayPath(bin),
+                                bin.name ?? '',
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ))

@@ -111,7 +111,7 @@ class NewItemColumnState extends State<NewItemColumn> {
                         .map((bin) => DropdownMenuItem<int>(
                               value: bin.id,
                               child: Text(
-                                binDisplayPath(bin),
+                                bin.name ?? '',
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ))
@@ -288,7 +288,7 @@ class NewItemColumnState extends State<NewItemColumn> {
                           .map((bin) => DropdownMenuItem<int>(
                                 value: bin.id,
                                 child: Text(
-                                  binDisplayPath(bin),
+                                  bin.name ?? '',
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ))
