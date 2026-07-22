@@ -48,12 +48,6 @@ class _ProfilePageState extends State<ProfilePage> {
     hasEmail();
   }
 
-  @override
-  void dispose() {
-    formKey.currentState?.dispose();
-    super.dispose();
-  }
-
   Future logOutWarning() => showDialog(
       context: context,
       builder: (context) => AlertDialog(

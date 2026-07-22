@@ -317,7 +317,11 @@ function uploaded_image(
         throw new InvalidArgumentException("The picture is too large");
     }
 
-    $mime = new finfo(FILEINFO_MIME_TYPE)->file($_FILES[$field]["tmp_name"]);
+    // Parentheses are required for method access on a newly constructed
+    // object on the PHP 8.1 runtime used by the production server.
+    $mime = (new finfo(FILEINFO_MIME_TYPE))->file(
+        $_FILES[$field]["tmp_name"],
+    );
     $extensions = [
         "image/jpeg" => "jpg",
         "image/png" => "png",

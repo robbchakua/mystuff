@@ -7,6 +7,10 @@ try {
     $db = database();
     $request = request_name();
 
+    if ($request === "health") {
+        respond("success", "API and database connection are healthy");
+    }
+
     if ($request === "login") {
         $identifier = clean_text(input("userid", input("email", "")), 190);
         $password = (string) input("password", "");

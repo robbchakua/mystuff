@@ -325,12 +325,6 @@ class _HomeState extends State<Home> {
     }
   }
 
-  @override
-  void dispose() {
-    scaffoldKey.currentState?.dispose();
-    super.dispose();
-  }
-
   void searchItem(String keyword) async {
     if (keyword.isEmpty) {
       resetItemList();

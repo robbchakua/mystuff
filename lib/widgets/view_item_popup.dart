@@ -90,7 +90,6 @@ class ViewItemColumnState extends State<ViewItemColumn> {
     nameController.dispose();
     descriptionController.dispose();
     quantityController.dispose();
-    formKey.currentState?.dispose();
     super.dispose();
   }
 

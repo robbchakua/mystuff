@@ -65,9 +65,9 @@ class NewItemColumnState extends State<NewItemColumn> {
   }
 
   Future<void> _createBin() async {
-    final binNameController = TextEditingController();
-    final binDescriptionController = TextEditingController();
     final binFormKey = GlobalKey<FormState>();
+    var binName = '';
+    var binDescription = '';
     int? parentId = selectedBinId;
     Color color = Colors.red;
     File? binImage;
@@ -84,7 +84,7 @@ class NewItemColumnState extends State<NewItemColumn> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   TextFormField(
-                    controller: binNameController,
+                    onChanged: (value) => binName = value,
                     validator: (value) {
                       if (value == null || value.trim().isEmpty) {
                         return InputErrors.empty;
@@ -113,7 +113,7 @@ class NewItemColumnState extends State<NewItemColumn> {
                         setDialogState(() => parentId = value),
                   ),
                   TextFormField(
-                    controller: binDescriptionController,
+                    onChanged: (value) => binDescription = value,
                     maxLines: 2,
                     decoration: const InputDecoration(labelText: 'Description'),
                   ),
@@ -159,8 +159,8 @@ class NewItemColumnState extends State<NewItemColumn> {
                 if (!binFormKey.currentState!.validate()) return;
                 final bin = Location(
                   parentId: parentId,
-                  name: binNameController.text.trim(),
-                  description: binDescriptionController.text.trim(),
+                  name: binName.trim(),
+                  description: binDescription.trim(),
                   color: colorToString(color),
                   location: latLngToString(userLocation),
                 );
@@ -182,8 +182,6 @@ class NewItemColumnState extends State<NewItemColumn> {
       ),
     );
 
-    binNameController.dispose();
-    binDescriptionController.dispose();
     if (created?.status == SQLResponseStatusTypes.success && mounted) {
       setState(() => selectedBinId = created!.binId);
     }

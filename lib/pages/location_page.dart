@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math';
-import 'package:dad_app/pages/home.dart';
 import 'package:dad_app/utils/constants.dart';
 import 'package:dad_app/utils/init.dart';
 import 'package:dad_app/styles/themes.dart';
@@ -8,7 +7,6 @@ import 'package:dad_app/utils/utils.dart';
 import 'package:dad_app/widgets/bin_drawer.dart';
 import 'package:dad_app/widgets/text.dart';
 import 'package:flutter/material.dart';
-import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:location/location.dart';
 
@@ -79,41 +77,40 @@ class _ItemLocationScreenState extends State<ItemLocationScreen> {
   }
 
   @override
-  initState() {
-    mapInit();
+  void initState() {
     super.initState();
+    if (!widget.withTarget) {
+      targetPosition = userLocation;
+    }
+    _refreshUserLocation();
   }
 
-  Future mapInit() async {
-    if (widget.withTarget) {}
-  }
-
-  @override
-  void dispose() {
-    locationScaffoldKey.currentState?.dispose();
-    super.dispose();
+  Future<void> _refreshUserLocation() async {
+    try {
+      final locationData = await Location().getLocation();
+      userLocation = LatLng(locationData.latitude!, locationData.longitude!);
+      userLocationAccuracy = locationData.accuracy!;
+    } catch (error) {
+      myPrint(error);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    Future(
-      () async {
-        LocationData locationData = await Location().getLocation();
-        userLocation = LatLng(locationData.latitude!, locationData.longitude!);
-        userLocationAccuracy = locationData.accuracy!;
-      },
-    );
-
     return Scaffold(
       key: locationScaffoldKey,
-      drawer: const BinDrawer(),
+      drawer: BinDrawer(
+        onBinsChanged: () {
+          if (mounted) setState(() {});
+        },
+      ),
       appBar: AppBar(
         centerTitle: true,
         title: const SubHeader('View'),
         actions: [
           IconButton(
               onPressed: () {
-                Get.to(() => const Home());
+                Navigator.pop(context);
               },
               icon: const Icon(Icons.home)),
         ],

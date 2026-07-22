@@ -15,7 +15,9 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 
 class BinDrawer extends StatefulWidget {
-  const BinDrawer({super.key});
+  final VoidCallback? onBinsChanged;
+
+  const BinDrawer({super.key, this.onBinsChanged});
 
   @override
   State<BinDrawer> createState() => _BinDrawerState();
@@ -89,12 +91,13 @@ class _BinDrawerState extends State<BinDrawer> {
 
   Future<void> _createBin({int? initialParentId}) async {
     final formKey = GlobalKey<FormState>();
-    final name = TextEditingController();
-    final description = TextEditingController();
+    var name = '';
+    var description = '';
     int? parentId = initialParentId;
     Color color = Colors.red;
     File? image;
 
+    var created = false;
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -107,7 +110,7 @@ class _BinDrawerState extends State<BinDrawer> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   TextFormField(
-                    controller: name,
+                    onChanged: (value) => name = value,
                     validator: (value) => value == null || value.trim().isEmpty
                         ? InputErrors.empty
                         : null,
@@ -131,7 +134,7 @@ class _BinDrawerState extends State<BinDrawer> {
                         setDialogState(() => parentId = value),
                   ),
                   TextFormField(
-                    controller: description,
+                    onChanged: (value) => description = value,
                     minLines: 1,
                     maxLines: 3,
                     decoration: const InputDecoration(labelText: 'Description'),
@@ -176,13 +179,14 @@ class _BinDrawerState extends State<BinDrawer> {
                 if (!formKey.currentState!.validate()) return;
                 final response = await Location(
                   parentId: parentId,
-                  name: name.text.trim(),
-                  description: description.text.trim(),
+                  name: name.trim(),
+                  description: description.trim(),
                   color: colorToString(color),
-                  location: latLngToString(userLocation),
+                  location: latLngToString(targetPosition),
                 ).post(imageFile: image);
                 if (response?.status == SQLResponseStatusTypes.success &&
                     dialogContext.mounted) {
+                  created = true;
                   Navigator.pop(dialogContext);
                 } else if (dialogContext.mounted) {
                   ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(
@@ -197,9 +201,10 @@ class _BinDrawerState extends State<BinDrawer> {
         ),
       ),
     );
-    name.dispose();
-    description.dispose();
-    if (mounted) setState(_resetLists);
+    if (mounted) {
+      setState(_resetLists);
+      if (created) widget.onBinsChanged?.call();
+    }
   }
 
   Set<int> _descendantIds(int rootId) {
@@ -221,8 +226,8 @@ class _BinDrawerState extends State<BinDrawer> {
 
   Future<void> _editBin(Location bin) async {
     final formKey = GlobalKey<FormState>();
-    final name = TextEditingController(text: bin.name);
-    final description = TextEditingController(text: bin.description);
+    var name = bin.name ?? '';
+    var description = bin.description ?? '';
     int? parentId = bin.parentId;
     Color color = stringToColor(bin.color ?? 'F44336');
     File? image;
@@ -243,7 +248,8 @@ class _BinDrawerState extends State<BinDrawer> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   TextFormField(
-                    controller: name,
+                    initialValue: name,
+                    onChanged: (value) => name = value,
                     validator: (value) => value == null || value.trim().isEmpty
                         ? InputErrors.empty
                         : null,
@@ -266,7 +272,8 @@ class _BinDrawerState extends State<BinDrawer> {
                         setDialogState(() => parentId = value),
                   ),
                   TextFormField(
-                    controller: description,
+                    initialValue: description,
+                    onChanged: (value) => description = value,
                     minLines: 1,
                     maxLines: 3,
                     decoration: const InputDecoration(labelText: 'Description'),
@@ -312,8 +319,8 @@ class _BinDrawerState extends State<BinDrawer> {
                 final response = await Location(
                   id: bin.id,
                   parentId: parentId,
-                  name: name.text.trim(),
-                  description: description.text.trim(),
+                  name: name.trim(),
+                  description: description.trim(),
                   location: bin.location,
                   color: colorToString(color),
                 ).put(null, image);
@@ -333,8 +340,6 @@ class _BinDrawerState extends State<BinDrawer> {
         ),
       ),
     );
-    name.dispose();
-    description.dispose();
     if (mounted) setState(_resetLists);
   }
 
