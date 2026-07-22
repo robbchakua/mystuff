@@ -300,7 +300,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                     ),
                                     Padding(
                                       padding: EdgeInsets.only(
-                                          left: screenWidth(context) / 55),
+                                          left: screenWidth(context) / 70),
                                       child: const Icon(Icons.warning,
                                           color: Colors.yellow),
                                     )

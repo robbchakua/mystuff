@@ -231,7 +231,9 @@ class _BinDrawerState extends State<BinDrawer> {
         visibleItems = itemsJsonList
             .where((item) =>
                 (item.name ?? '').toLowerCase().contains(normalized) ||
-                (item.location ?? '').toLowerCase().contains(normalized))
+                (item.location ?? '').toLowerCase().contains(normalized) ||
+                item.tags
+                    .any((tag) => tag.toLowerCase().contains(normalized)))
             .toList();
       }
     });
@@ -710,11 +712,24 @@ class _BinDrawerState extends State<BinDrawer> {
             errorWidget: (_, __, ___) => const Icon(Icons.image_not_supported),
           ),
           title: Text(item.name ?? '', overflow: TextOverflow.ellipsis),
-          subtitle: Text(
-            getLocationFromId(item.binId) == null
-                ? item.location ?? ''
-                : binDisplayPath(getLocationFromId(item.binId)!),
-            overflow: TextOverflow.ellipsis,
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                getLocationFromId(item.binId) == null
+                    ? item.location ?? ''
+                    : binDisplayPath(getLocationFromId(item.binId)!),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
+              if (item.tags.isNotEmpty)
+                Text(
+                  item.tags.take(3).join(' • '),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  style: TextStyle(color: middleGrey(context), fontSize: 12),
+                ),
+            ],
           ),
         ),
       );

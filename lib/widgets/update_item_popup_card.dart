@@ -3,6 +3,7 @@ import 'package:dad_app/models/response_model.dart';
 import 'package:dad_app/styles/themes.dart';
 import 'package:dad_app/utils/constants.dart';
 import 'package:dad_app/utils/utils.dart';
+import 'package:dad_app/widgets/item_tags_field.dart';
 import 'package:dad_app/widgets/text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -15,6 +16,7 @@ class UpdateItemColumn extends StatefulWidget {
   final int? quantity;
   final String? description;
   final String? oldImage;
+  final List<String> tags;
 
   const UpdateItemColumn({
     super.key,
@@ -25,6 +27,7 @@ class UpdateItemColumn extends StatefulWidget {
     this.quantity,
     this.description,
     this.oldImage,
+    this.tags = const [],
   });
 
   @override
@@ -39,6 +42,7 @@ class _UpdateItemColumnState extends State<UpdateItemColumn> {
 
   bool multipleBool = false;
   int? selectedBinId;
+  late List<String> selectedTags;
 
   @override
   void initState() {
@@ -47,9 +51,11 @@ class _UpdateItemColumnState extends State<UpdateItemColumn> {
     descriptionController.text = widget.description ?? '';
     quantityController.text = (widget.quantity ?? 1).toString();
     multipleBool = widget.multiple ?? false;
+    selectedTags = List.of(widget.tags);
     for (final item in itemsJsonList) {
       if (item.id == widget.id) {
         selectedBinId = item.binId;
+        if (selectedTags.isEmpty) selectedTags = List.of(item.tags);
         break;
       }
     }
@@ -94,18 +100,21 @@ class _UpdateItemColumnState extends State<UpdateItemColumn> {
             ),
             Padding(
               padding: const EdgeInsets.all(8),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: secondaryColor(context),
-                  border: Border.all(color: inverseColor(context)),
-                ),
-                width: screenWidth(context) / 1.4,
-                height: screenWidth(context) / 1.4,
-                child: Image.file(
-                  file,
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) =>
-                      const Icon(Icons.image_not_supported),
+              child: AspectRatio(
+                aspectRatio: 4 / 3,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: secondaryColor(context),
+                    border: Border.all(color: inverseColor(context)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Image.file(
+                    file,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) =>
+                        const Icon(Icons.image_not_supported),
+                  ),
                 ),
               ),
             ),
@@ -126,6 +135,13 @@ class _UpdateItemColumnState extends State<UpdateItemColumn> {
                     vertical: screenHeight(context) / 80,
                   ),
                 ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: ItemTagsField(
+                initialTags: selectedTags,
+                onChanged: (tags) => selectedTags = tags,
               ),
             ),
             const Divider(),
@@ -163,9 +179,10 @@ class _UpdateItemColumnState extends State<UpdateItemColumn> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const SubHeader('Number of Items'),
+                const Expanded(child: SubHeader('Number of Items')),
+                const SizedBox(width: 16),
                 SizedBox(
-                  width: screenWidth(context) / 4,
+                  width: 120,
                   child: TextFormField(
                     readOnly: !multipleBool,
                     keyboardType: TextInputType.number,
@@ -175,13 +192,15 @@ class _UpdateItemColumnState extends State<UpdateItemColumn> {
               ],
             ).animate(target: multipleBool ? 0 : 1).fadeOut(),
             const Divider(),
-            Row(
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 8,
+              runSpacing: 8,
               children: [
                 ElevatedButton(
                   onPressed: () => Navigator.pop(context),
                   child: const ButtonText('Cancel'),
                 ),
-                const SizedBox(width: 8),
                 ElevatedButton(
                   onPressed: () async {
                     if (!formKey.currentState!.validate()) return;
@@ -196,6 +215,7 @@ class _UpdateItemColumnState extends State<UpdateItemColumn> {
                       multiple: multipleBool,
                       quantity: int.tryParse(quantityController.text) ?? 1,
                       description: safeString(descriptionController.text),
+                      tags: selectedTags,
                     );
                     final response = await item.put();
                     if (!mounted) return;

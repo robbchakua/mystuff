@@ -47,7 +47,7 @@ class InputErrors {
   static String shortPassword = 'Password length is too short (min. 10)';
   static String empty = 'This field cannot be empty';
   static String emailError = 'Not a valid Email';
-  static String longName = 'Password length is too long (max 20)';
+  static String longName = 'Name is too long (max 20)';
   static String missingNumber = 'Password must have a number';
   static String missingSpecialChar = 'Password must have a special character';
   static String missingUppercase = 'Password must have an uppercase character';

@@ -36,6 +36,20 @@ The first account created through the app becomes the initial administrator.
 After that, account creation requires a logged-in administrator token. There
 is therefore no permanently open public registration endpoint.
 
+## Add item tags to an existing database
+
+If the database already exists, run `migrations/002_item_tags.sql`, or execute:
+
+```sql
+USE `rusmark_mystuff`;
+ALTER TABLE `items`
+  ADD COLUMN `tags` VARCHAR(1000) NOT NULL DEFAULT '[]' AFTER `description`;
+```
+
+Then upload the updated `post.php`. Fresh installations using `db_schema.sql`
+already include the column. Tags are stored as a JSON array in this compatible
+text column; the API validates and returns them as an array.
+
 ## Access rules
 
 - Administrators can read and edit all bins, manage team accounts, and grant

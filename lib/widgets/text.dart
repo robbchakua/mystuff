@@ -45,7 +45,8 @@ class Title extends Text {
     return Text(data ?? "",
         textAlign: TextAlign.center,
         style: TextStyle(
-          fontSize: screenWidth(context) / 13,
+          fontSize:
+              (screenWidth(context) / 13).clamp(28.0, 42.0).toDouble(),
           color: inverseColor(context),
           fontWeight: FontWeight.bold,
         ));
@@ -59,7 +60,8 @@ class Header extends Text {
   Widget build(BuildContext context) {
     return Text(data ?? "",
         style: TextStyle(
-          fontSize: screenWidth(context) / 15,
+          fontSize:
+              (screenWidth(context) / 15).clamp(22.0, 30.0).toDouble(),
           color: inverseColor(context),
           fontWeight: FontWeight.w800,
         ));
@@ -74,7 +76,8 @@ class SubHeader extends Text {
     return Text(data ?? "",
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          fontSize: screenWidth(context) / 25,
+          fontSize:
+              (screenWidth(context) / 25).clamp(17.0, 24.0).toDouble(),
           color: inverseColor(context),
           fontWeight: FontWeight.w800,
         ));
@@ -89,7 +92,8 @@ class BodyText extends Text {
     return Text(data ?? "",
         style: TextStyle(
             color: inverseColor(context),
-            fontSize: screenWidth(context) / 30,
+            fontSize:
+                (screenWidth(context) / 30).clamp(14.0, 18.0).toDouble(),
             fontWeight: FontWeight.w300));
   }
 }
@@ -102,7 +106,8 @@ class ButtonText extends Text {
     return Text(data ?? "",
         style: TextStyle(
           color: inverseColor(context),
-          fontSize: screenWidth(context) / 30,
+          fontSize:
+              (screenWidth(context) / 30).clamp(14.0, 18.0).toDouble(),
         ));
   }
 }
@@ -115,7 +120,8 @@ class VersionText extends Text {
     return Text(data ?? "",
         style: TextStyle(
           color: Colors.grey,
-          fontSize: screenWidth(context) / 30,
+          fontSize:
+              (screenWidth(context) / 30).clamp(11.0, 14.0).toDouble(),
         ));
   }
 }

@@ -5,6 +5,7 @@ import 'package:dad_app/models/user_model.dart';
 import 'package:dad_app/utils/constants.dart';
 import 'package:dad_app/utils/api.dart';
 import 'package:dad_app/utils/init.dart';
+import 'package:dad_app/utils/item_tags.dart';
 import 'package:dad_app/utils/utils.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -27,6 +28,7 @@ class Item {
   bool? multiple;
   int? quantity;
   String? description;
+  List<String> tags;
   bool canEdit;
 
   Item({
@@ -40,6 +42,7 @@ class Item {
     this.multiple,
     this.quantity,
     this.description,
+    this.tags = const [],
     this.canEdit = false,
   });
 
@@ -58,6 +61,7 @@ class Item {
         multiple: _asBool(json['multiple']),
         quantity: _asInt(json['quantity']) ?? 1,
         description: json['description']?.toString() ?? '',
+        tags: decodeItemTags(json['tags']),
         canEdit: _asBool(json['canEdit']),
       );
 
@@ -72,6 +76,7 @@ class Item {
         'multiple': multiple,
         'quantity': quantity,
         'description': description,
+        'tags': tags,
         'canEdit': canEdit,
       };
 
@@ -87,6 +92,7 @@ class Item {
       'multiple': multiple ?? false,
       'quantity': quantity ?? 1,
       'description': newDescription,
+      'tags': encodeItemTags(tags),
       if (file.path.isNotEmpty)
         'image': await MultipartFile.fromFile(file.path, filename: fileName),
     });
@@ -95,7 +101,7 @@ class Item {
   @override
   String toString() => 'Item(Id: $id, Name: $name, BinId: $binId, '
       'Bin: $location, Image: $image, Multiple: $multiple, '
-      'Quantity: $quantity, Description: $description)';
+      'Quantity: $quantity, Description: $description, Tags: $tags)';
 
   Future<SQLResponse?> post({
     bool newLocation = false,

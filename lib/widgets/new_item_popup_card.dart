@@ -7,6 +7,7 @@ import 'package:dad_app/models/user_model.dart';
 import 'package:dad_app/styles/themes.dart';
 import 'package:dad_app/utils/constants.dart';
 import 'package:dad_app/utils/utils.dart';
+import 'package:dad_app/widgets/item_tags_field.dart';
 import 'package:dad_app/widgets/text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -28,6 +29,7 @@ class NewItemColumnState extends State<NewItemColumn> {
 
   bool multipleBool = false;
   int? selectedBinId;
+  List<String> selectedTags = [];
 
   @override
   void initState() {
@@ -223,18 +225,21 @@ class NewItemColumnState extends State<NewItemColumn> {
               ),
               Padding(
                 padding: const EdgeInsets.all(8),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: secondaryColor(context),
-                    border: Border.all(color: inverseColor(context)),
-                  ),
-                  width: screenWidth(context) / 1.4,
-                  height: screenWidth(context) / 1.4,
-                  child: Image.file(
-                    file,
-                    fit: BoxFit.contain,
-                    errorBuilder: (_, __, ___) =>
-                        const Icon(Icons.image_not_supported),
+                child: AspectRatio(
+                  aspectRatio: 4 / 3,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: secondaryColor(context),
+                      border: Border.all(color: inverseColor(context)),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Image.file(
+                      file,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) =>
+                          const Icon(Icons.image_not_supported),
+                    ),
                   ),
                 ),
               ),
@@ -254,6 +259,12 @@ class NewItemColumnState extends State<NewItemColumn> {
                       horizontal: screenWidth(context) / 100,
                     ),
                   ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(8),
+                child: ItemTagsField(
+                  onChanged: (tags) => selectedTags = tags,
                 ),
               ),
               const Divider(),
@@ -305,9 +316,10 @@ class NewItemColumnState extends State<NewItemColumn> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const SubHeader('Number of Items'),
+                  const Expanded(child: SubHeader('Number of Items')),
+                  const SizedBox(width: 16),
                   SizedBox(
-                    width: screenWidth(context) / 4,
+                    width: 120,
                     child: TextFormField(
                       readOnly: !multipleBool,
                       keyboardType: TextInputType.number,
@@ -317,14 +329,15 @@ class NewItemColumnState extends State<NewItemColumn> {
                 ],
               ).animate(target: multipleBool ? 0 : 1).fadeOut(),
               const Divider(),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
+              Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 8,
+                runSpacing: 8,
                 children: [
                   ElevatedButton(
                     onPressed: () => Navigator.pop(context),
                     child: const ButtonText('Cancel'),
                   ),
-                  const SizedBox(width: 8),
                   ElevatedButton(
                     onPressed: () async {
                       if (!formKey.currentState!.validate()) return;
@@ -338,6 +351,7 @@ class NewItemColumnState extends State<NewItemColumn> {
                         multiple: multipleBool,
                         quantity: int.tryParse(quantityController.text) ?? 1,
                         description: safeString(descriptionController.text),
+                        tags: selectedTags,
                       );
                       final response = await item.post();
                       if (!mounted) return;

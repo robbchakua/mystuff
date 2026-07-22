@@ -51,6 +51,66 @@ function parse_color(mixed $value): string
     return $color;
 }
 
+function parse_tags(mixed $value): array
+{
+    if (is_array($value)) {
+        $values = $value;
+    } else {
+        $source = trim((string) $value);
+        if ($source === "") {
+            return [];
+        }
+        try {
+            $decoded = json_decode($source, true, 512, JSON_THROW_ON_ERROR);
+            $values = is_array($decoded) ? $decoded : [$decoded];
+        } catch (JsonException) {
+            // This also supports a simple comma-separated manual import.
+            $values = explode(",", $source);
+        }
+    }
+    if (!array_is_list($values)) {
+        throw new InvalidArgumentException("Item tags must be a list");
+    }
+
+    $tags = [];
+    $seen = [];
+    foreach ($values as $value) {
+        if (!is_scalar($value)) {
+            throw new InvalidArgumentException("Each item tag must be text");
+        }
+        $tag = clean_text(
+            preg_replace('/\s+/u', " ", trim((string) $value)) ?? "",
+            30,
+            false,
+        );
+        if ($tag === "") {
+            continue;
+        }
+        $key = function_exists("mb_strtolower")
+            ? mb_strtolower($tag)
+            : strtolower($tag);
+        if (isset($seen[$key])) {
+            continue;
+        }
+        if (count($tags) >= 10) {
+            throw new InvalidArgumentException(
+                "An item can have up to 10 tags",
+            );
+        }
+        $seen[$key] = true;
+        $tags[] = $tag;
+    }
+    return $tags;
+}
+
+function tags_json(mixed $value): string
+{
+    return json_encode(
+        parse_tags($value),
+        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
+    );
+}
+
 function find_bin(array $bins, int $binId): ?array
 {
     foreach ($bins as $bin) {
@@ -137,6 +197,7 @@ function load_data(PDO $db, array $user): array
                 "multiple" => (bool) $item["is_multiple"],
                 "quantity" => (int) $item["quantity"],
                 "description" => $item["description"] ?? "",
+                "tags" => parse_tags($item["tags"] ?? "[]"),
                 "canEdit" =>
                     permission_rank($permissions[(int) $item["bin_id"]]) >=
                     permission_rank("edit"),
@@ -374,12 +435,13 @@ try {
         $multiple = boolean_input("multiple");
         $quantity = max(1, (int) input("quantity", 1));
         $description = clean_text(input("description", ""), 10000, false);
+        $tags = tags_json(input("tags", "[]"));
         $image = uploaded_image("image", "items", true);
 
         $statement = $db->prepare(
             "INSERT INTO items " .
-                "(bin_id, created_by, name, stored_at, image_path, is_multiple, quantity, description) " .
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "(bin_id, created_by, name, stored_at, image_path, is_multiple, quantity, description, tags) " .
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         );
         $statement->execute([
             $binId,
@@ -390,6 +452,7 @@ try {
             $multiple ? 1 : 0,
             $multiple ? $quantity : 1,
             $description === "" ? null : $description,
+            $tags,
         ]);
         respond("success", "Item created", load_data($db, $user), 201);
     }
@@ -422,12 +485,13 @@ try {
             10000,
             false,
         );
+        $tags = tags_json(input("tags", $item["tags"] ?? "[]"));
         $image = uploaded_image("image", "items", false);
         $newImagePath = $image ?? $item["image_path"];
 
         $statement = $db->prepare(
             "UPDATE items SET bin_id = ?, name = ?, image_path = ?, " .
-                "is_multiple = ?, quantity = ?, description = ? WHERE id = ?",
+                "is_multiple = ?, quantity = ?, description = ?, tags = ? WHERE id = ?",
         );
         $statement->execute([
             $binId,
@@ -436,6 +500,7 @@ try {
             $multiple ? 1 : 0,
             $multiple ? $quantity : 1,
             $description === "" ? null : $description,
+            $tags,
             $itemId,
         ]);
         if ($image !== null) {

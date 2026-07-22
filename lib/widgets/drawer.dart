@@ -409,7 +409,11 @@ class _LocationDrawerState extends State<LocationDrawer> {
               itemsJsonList[i]
                   .location!
                   .toLowerCase()
-                  .contains(keyword.toLowerCase());
+                  .contains(keyword.toLowerCase()) ||
+              itemsJsonList[i].tags.any(
+                    (tag) =>
+                        tag.toLowerCase().contains(keyword.toLowerCase()),
+                  );
           if (found) {
             itemsUpdatingList.add(itemsJsonList[i]);
           }

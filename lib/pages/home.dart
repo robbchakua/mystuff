@@ -143,7 +143,8 @@ class _HomeState extends State<Home> {
           required String location,
           required bool multiple,
           required int quantity,
-          required String description}) =>
+          required String description,
+          required List<String> tags}) =>
       showDialog(
           context: context,
           builder: (context) => AlertDialog(
@@ -159,6 +160,7 @@ class _HomeState extends State<Home> {
                 multiple: multiple,
                 quantity: quantity,
                 description: description,
+                tags: tags,
                 locationId: locationId,
               )));
 
@@ -375,14 +377,16 @@ class _HomeState extends State<Home> {
     } else {
       itemsUpdatingList = [];
       for (var i = 0; i < itemsJsonList.length; i++) {
-        bool found = itemsJsonList[i]
-                .name!
+        final normalized = keyword.toLowerCase();
+        bool found = (itemsJsonList[i].name ?? '')
                 .toLowerCase()
-                .contains(keyword.toLowerCase()) ||
+                .contains(normalized) ||
+            (itemsJsonList[i].location ?? '')
+                .toLowerCase()
+                .contains(normalized) ||
             itemsJsonList[i]
-                .location!
-                .toLowerCase()
-                .contains(keyword.toLowerCase());
+                .tags
+                .any((tag) => tag.toLowerCase().contains(normalized));
         if (found) {
           itemsUpdatingList.add(itemsJsonList[i]);
         }
@@ -923,6 +927,10 @@ class _HomeState extends State<Home> {
                                                                   itemsUpdatingList[
                                                                           index]
                                                                       .description!,
+                                                              tags:
+                                                                  itemsUpdatingList[
+                                                                          index]
+                                                                      .tags,
                                                             );
                                                           },
                                                           trailing:
@@ -988,26 +996,51 @@ class _HomeState extends State<Home> {
                                                               ),
                                                             ],
                                                           ),
-                                                          subtitle: Row(
+                                                          subtitle: Column(
+                                                            crossAxisAlignment:
+                                                                CrossAxisAlignment
+                                                                    .start,
                                                             children: [
-                                                              Expanded(
-                                                                child: Text(
-                                                                    getLocationFromId(itemsUpdatingList[index].binId) ==
-                                                                            null
-                                                                        ? itemsUpdatingList[index]
-                                                                            .location!
-                                                                        : binDisplayPath(getLocationFromId(itemsUpdatingList[index]
-                                                                            .binId)!),
-                                                                    overflow:
-                                                                        TextOverflow
-                                                                            .ellipsis,
-                                                                    softWrap:
-                                                                        false,
-                                                                    style: TextStyle(
-                                                                        fontSize:
-                                                                            screenWidth(context) /
-                                                                                40)),
+                                                              Text(
+                                                                getLocationFromId(itemsUpdatingList[index].binId) ==
+                                                                        null
+                                                                    ? itemsUpdatingList[index]
+                                                                            .location ??
+                                                                        ''
+                                                                    : binDisplayPath(getLocationFromId(itemsUpdatingList[index]
+                                                                        .binId)!),
+                                                                overflow:
+                                                                    TextOverflow
+                                                                        .ellipsis,
+                                                                maxLines: 1,
+                                                                style: TextStyle(
+                                                                    fontSize: (screenWidth(context) /
+                                                                            40)
+                                                                        .clamp(
+                                                                            12.0,
+                                                                            16.0)
+                                                                        .toDouble()),
                                                               ),
+                                                              if (itemsUpdatingList[
+                                                                      index]
+                                                                  .tags
+                                                                  .isNotEmpty)
+                                                                Text(
+                                                                  itemsUpdatingList[
+                                                                          index]
+                                                                      .tags
+                                                                      .take(3)
+                                                                      .join(' • '),
+                                                                  overflow:
+                                                                      TextOverflow
+                                                                          .ellipsis,
+                                                                  maxLines: 1,
+                                                                  style: TextStyle(
+                                                                    color: middleGrey(
+                                                                        context),
+                                                                    fontSize: 12,
+                                                                  ),
+                                                                ),
                                                             ],
                                                           ),
                                                         ),
