@@ -1,0 +1,73 @@
+# Operating-system and editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.history/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+.buildlog/
+migrate_working_dir/
+
+# Dart and Flutter generated files
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+**/doc/api/
+**/ios/Flutter/.last_build_id
+/build/
+/coverage/
+
+# Flutter symbolication and obfuscation output
+app.*.symbols
+app.*.map.json
+
+# Android build output
+/android/.gradle/
+/android/app/debug/
+/android/app/profile/
+/android/app/release/
+
+# Local SDK paths, API keys, and signing credentials
+/android/local.properties
+/android/key.properties
+*.jks
+*.keystore
+*.p12
+*.pem
+
+# Local environment files (keep shareable examples)
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# PHP database credentials and runtime uploads
+/lib/php/db.php
+/lib/php/images/
+
+# Local database dumps and historical archives
+*.sql.gz
+*.dump
+/DadAppVersions.zip
+
+# FVM stores the selected Flutter SDK here; commit .fvmrc if one is added.
+.fvm/flutter_sdk
+
+# Generated desktop platform files
+/windows/flutter/ephemeral/
+/linux/flutter/ephemeral/
+/macos/Flutter/ephemeral/

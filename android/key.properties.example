@@ -1,0 +1,6 @@
+# Copy this file to key.properties and fill in the rotated release credentials.
+# key.properties is ignored by Git.
+storePassword=replace-me
+keyPassword=replace-me
+keyAlias=replace-me
+storeFile=app/replace-me.jks
