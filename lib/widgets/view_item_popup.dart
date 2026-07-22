@@ -279,7 +279,7 @@ class _ViewItemColumnState extends State<ViewItemColumn> {
               OutlinedButton.icon(
                 onPressed: _showHistory,
                 icon: const Icon(Icons.history),
-                label: const Text('View history'),
+                label: const ButtonText('View history'),
               ),
               if (item.canEdit) ...[
                 const SizedBox(height: 20),

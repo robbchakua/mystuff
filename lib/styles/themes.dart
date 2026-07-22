@@ -3,6 +3,11 @@ import 'package:flutter/material.dart';
 
 ThemeData darkTheme(BuildContext context) {
   isDarkTheme = true;
+  final visibleButtonColor = MaterialStateProperty.resolveWith<Color>(
+    (states) => states.contains(MaterialState.disabled)
+        ? Colors.white54
+        : Colors.white,
+  );
   ThemeData themeData = ThemeData(
       drawerTheme: const DrawerThemeData(
           backgroundColor: Colors.transparent,
@@ -17,9 +22,38 @@ ThemeData darkTheme(BuildContext context) {
               borderRadius: BorderRadius.all(Radius.circular(30)))),
       elevatedButtonTheme: ElevatedButtonThemeData(
           style: ButtonStyle(
-        iconColor: MaterialStateProperty.all(Colors.white),
+        foregroundColor: visibleButtonColor,
+        iconColor: visibleButtonColor,
         shadowColor: MaterialStateProperty.all(Colors.white),
       )),
+      filledButtonTheme: FilledButtonThemeData(
+        style: ButtonStyle(
+          foregroundColor: visibleButtonColor,
+          iconColor: visibleButtonColor,
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: ButtonStyle(
+          foregroundColor: visibleButtonColor,
+          iconColor: visibleButtonColor,
+          side: MaterialStateProperty.resolveWith(
+            (states) => BorderSide(
+              color: states.contains(MaterialState.disabled)
+                  ? Colors.white38
+                  : Colors.white,
+            ),
+          ),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: ButtonStyle(
+          foregroundColor: visibleButtonColor,
+          iconColor: visibleButtonColor,
+        ),
+      ),
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        foregroundColor: Colors.white,
+      ),
       brightness: Brightness.dark,
       dividerColor: Colors.grey[500]!,
       inputDecorationTheme: InputDecorationTheme(
@@ -52,8 +86,12 @@ ThemeData darkTheme(BuildContext context) {
       colorScheme: ColorScheme.dark(
           background: Colors.grey[800]!,
           primary: const Color(0xFF101010),
+          onPrimary: Colors.white,
           secondary: Colors.black,
-          tertiary: Colors.white));
+          onSecondary: Colors.white,
+          tertiary: Colors.white,
+          onTertiary: Colors.black,
+          onSurface: Colors.white));
   return themeData;
 }
 
