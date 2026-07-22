@@ -223,7 +223,7 @@ class _TeamPageState extends State<TeamPage> {
                     obscureText: true,
                     validator: (value) =>
                         _passwordValidator(value, optional: true),
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Reset password (optional)',
                       helperText: user.id == User.user.id
                           ? 'Change your own password from Profile.'
@@ -293,7 +293,7 @@ class _TeamPageState extends State<TeamPage> {
     final now = DateTime.now();
     final date = '${now.year}-${now.month.toString().padLeft(2, '0')}-'
         '${now.day.toString().padLeft(2, '0')}';
-    final saved = await FilePicker.platform.saveFile(
+    final saved = await FilePicker.saveFile(
       dialogTitle: 'Save MyStuff inventory',
       fileName: 'mystuff-inventory-$date.csv',
       type: FileType.custom,
